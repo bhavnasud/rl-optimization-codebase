@@ -4,11 +4,17 @@ from collections import defaultdict
 from src.misc.utils import mat2str
 
 
-def solveRebFlow(env, res_path, desiredAcc, CPLEXPATH, directory):
+def solveRebFlow(env, res_path, desiredAcc, CPLEXPATH, directory, use_current_time=False):
     t = env.time
     accRLTuple = [(n, int(round(desiredAcc[n]))) for n in desiredAcc]
-    accTuple = [(n, int(env.acc[n][t + 1])) for n in env.acc]
+    if use_current_time:
+         accTuple = [(n, int(env.acc[n][t])) for n in env.acc]
+    else:
+        accTuple = [(n, int(env.acc[n][t + 1])) for n in env.acc]
+    print("acc tuple ", accTuple)
+    print("desired acc ", desiredAcc)
     edgeAttr = [(i, j, env.G.edges[i, j]["time"]) for i, j in env.G.edges]
+    print("edgeAttr", edgeAttr)
     modPath = os.getcwd().replace("\\", "/") + "/src/cplex_mod/"
     OPTPath = (
         os.getcwd().replace("\\", "/")
