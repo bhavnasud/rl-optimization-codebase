@@ -11,10 +11,10 @@ def solveRebFlow(env, res_path, desiredAcc, CPLEXPATH, directory, use_current_ti
          accTuple = [(n, int(env.acc[n][t])) for n in env.acc]
     else:
         accTuple = [(n, int(env.acc[n][t + 1])) for n in env.acc]
-    print("acc tuple ", accTuple)
-    print("desired acc ", desiredAcc)
+    # print("acc tuple ", accTuple)
+    # print("desired acc ", desiredAcc)
     edgeAttr = [(i, j, env.G.edges[i, j]["time"]) for i, j in env.G.edges]
-    print("edgeAttr", edgeAttr)
+    # print("edgeAttr", edgeAttr)
     modPath = os.getcwd().replace("\\", "/") + "/src/cplex_mod/"
     OPTPath = (
         os.getcwd().replace("\\", "/")

@@ -19,10 +19,10 @@ from torch_geometric.data import Data
 class NetworkFlow:
     # initialization
     def __init__(
-        self, num_nodes=10
+        self, num_nodes=3
     ):
         # graph, complete graph for now
-        self.G = nx.complete_graph(num_nodes)  # node attr: 'amountOfCommodity', edge attr: 'travelTime'
+        self.G = nx.complete_graph(num_nodes)  # node attr: 'amountOfCommodity', edge attr: 'time'
         self.G = self.G.to_directed()
         self.region = list(self.G)  # set of nodes
         self.edges = list(self.G.edges)
@@ -31,10 +31,17 @@ class NetworkFlow:
         # edges of graph in format expected by RL network
         self.edge_index = self.get_edge_index()
         self.nregion = len(self.G)
+        self.time = 0  # current time
+        self.acc = defaultdict(dict)
+        self.start_node, self.goal_node = random.choices(self.region, k=2)
+        for n in self.region:
+            self.acc[n][0] = self.total_commodity if n == self.start_node else 0
+        for i in self.G.edges:
+            self.G.edges[i]['time'] = 1
         self.reset()
 
     def get_edge_index(self):
-        print("edges ", self.edges)
+        # print("edges ", self.edges)
         source_nodes, target_nodes = zip(*list(self.edges))
         source_nodes = np.array(source_nodes)
         target_nodes = np.array(target_nodes)
@@ -43,11 +50,11 @@ class NetworkFlow:
 
     def get_current_state(self):
         # current state (input to RL policy) includes current
-        # commodity distribution (currently integer distribution
-        # rather than float distribution that adds up to 1), 
+        # commodity distribution (integer distribution that adds up to total commodity), 
         # travel times, 
         # and graph layout (self.edge_index) 
         node_data = torch.FloatTensor([self.acc[i][self.time] for i in range(len(self.G.nodes))]).unsqueeze(1)
+        # print("node data ", node_data)
         edge_data = torch.FloatTensor([self.G.edges[i,j]['time'] for i,j in self.edges]).unsqueeze(1)
         return Data(node_data, self.edge_index, edge_data)
 
@@ -56,6 +63,7 @@ class NetworkFlow:
         Params:
             flows is a list of edge flows corresponding to self.edges
         Returns:
+        next state (Data object)
         integer reward for that step
             reward is 0 if all commodity reaches goal, -1 otherwise
         boolean indicating whether trajectory is over or not
@@ -81,10 +89,13 @@ class NetworkFlow:
                 print("NEGATIVE COMMODITY AT NODE ", n)
         self.time += 1
         # 0 reward if all commodity at goal, -1 otherwise
-        if self.G.nodes[self.goal_node] == self.total_commodity:
-            return 0, True
+        if self.acc[self.goal_node][self.time] == self.total_commodity:
+            # print("REACHED GOAL ", self.goal_node)
+            # print(self.acc)
+            return self.get_current_state(), 0, True
         else:
-            return -1, False
+            # TODO: normalize reward by travel time of shortest path
+            return self.get_current_state(), -1, False
             
     def reset(self):
         # resets environment for next trajectory, randomly chooses
@@ -92,10 +103,8 @@ class NetworkFlow:
         # all commodity starts at start node
         self.time = 0  # current time
         self.acc = defaultdict(dict) # maps nodes to time to amount of commodity at that node at that time
-        self.start_node, self.goal_node = random.choices(self.region, k=2)
+        # self.start_node, self.goal_node = random.choices(self.region, k=2)
         for n in self.region:
             self.acc[n][0] = self.total_commodity if n == self.start_node else 0
-        # TODO: normalize travel times by length of shortest path
-        for i in self.G.edges:
-            self.G.edges[i]['time'] = random.randint(1,5)
-                
+        # for i in self.G.edges:
+        #     self.G.edges[i]['time'] = random.randint(1,5)

@@ -51,6 +51,7 @@ class ReplayData:
         self.rewards = []
 
     def store(self, data1, action, reward, data2):
+        # TODO: add edge attr feature
         self.data_list.append(
             PairData(
                 data1.edge_index,

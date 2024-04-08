@@ -11,9 +11,9 @@ import json
 from torch_geometric.data import Data
 import copy
 
-NUM_EPOCHS = 10
+NUM_EPOCHS = 10000
 CPLEX_PATH = "/Applications/CPLEX_Studio2211/opl/bin/arm64_osx/"
-BATCH_SIZE = 32
+BATCH_SIZE = 100
 
 env = NetworkFlow()
 
@@ -26,7 +26,7 @@ model = SAC(
     p_lr=1e-3,
     q_lr=1e-3,
     alpha=0.3,
-    batch_size=100,
+    batch_size=BATCH_SIZE,
     use_automatic_entropy_tuning=False,
     clip=500,
     critic_version=4,
@@ -45,9 +45,9 @@ for i_episode in epochs:
     while not done:
         obs = env.get_current_state()
         action_rl = model.select_action(obs)
-        # convert from Dirichlet distribution to integers
+        # convert from Dirichlet distribution to integer distribution
         desired_commodity_distribution = {
-            env.region[i]: int(
+            env.region[i]: round(
                 action_rl[i] * env.total_commodity
             )
             for i in range(len(env.region))
@@ -62,22 +62,26 @@ for i_episode in epochs:
         )
 
         # Take action in environment
-        reward, done = env.step(action)
+        next_state, reward, done = env.step(action)
         episode_reward += reward
+        if step > 0:
+            model.replay_buffer.store(
+                obs, action_rl, reward, next_state
+            )
+
         epochs.set_description(
             f"Episode {i_episode+1} | Reward: {episode_reward:.2f}"
         )
-        if step > 0:
-            # Q: WHY DO WE STORE BOTH OBS AND PREV OBS?
-            model.replay_buffer.store(
-                prev_obs, action_rl, reward, obs
-            )
-        prev_obs = copy.deepcopy(obs)
 
+        prev_obs = copy.deepcopy(obs)
+        
         step += 1
         if i_episode > 10:
             # sample from memory and update model
-            # Q: HOW DOES THIS BATCHING WORK?
-            batch = model.replay_buffer.sample_batch(
-                BATCH_SIZE, norm=False)
-            model.update(data=batch)
+            if (len(model.replay_buffer.data_list) >= BATCH_SIZE):
+                batch = model.replay_buffer.sample_batch(
+                    BATCH_SIZE, norm=False)
+                model.update(data=batch)
+            else:
+                print("not enough data!")
+    print("episode ", i_episode + 1, "reward ", episode_reward)
