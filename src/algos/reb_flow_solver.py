@@ -28,12 +28,16 @@ def solveRebFlow(env, res_path, desiredAcc, CPLEXPATH, directory, use_current_ti
         os.makedirs(OPTPath)
     datafile = OPTPath + f"data_{t}.dat"
     resfile = OPTPath + f"res_{t}.dat"
+    # print("edgeAttr ", edgeAttr)
+    # print("accTuple ", accTuple)
+    # print("accRLTuple ", accRLTuple)
     with open(datafile, "w") as file:
         file.write('path="' + resfile + '";\r\n')
         file.write("edgeAttr=" + mat2str(edgeAttr) + ";\r\n")
         file.write("accInitTuple=" + mat2str(accTuple) + ";\r\n")
         file.write("accRLTuple=" + mat2str(accRLTuple) + ";\r\n")
-    modfile = modPath + "minRebDistRebOnly.mod"
+    modfile = modPath + "minRebDistNetworkFlow.mod"
+    # print("modfile ", modfile)
     if CPLEXPATH is None:
         CPLEXPATH = "/opt/ibm/ILOG/CPLEX_Studio128/opl/bin/x86-64_linux/"
     my_env = os.environ.copy()
@@ -50,6 +54,7 @@ def solveRebFlow(env, res_path, desiredAcc, CPLEXPATH, directory, use_current_ti
     with open(resfile, "r", encoding="utf8") as file:
         for row in file:
             item = row.strip().strip(";").split("=")
+            # print("item ", item)
             if item[0] == "flow":
                 values = item[1].strip(")]").strip("[(").split(")(")
                 for v in values:

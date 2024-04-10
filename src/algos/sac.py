@@ -108,19 +108,28 @@ class GNNActor(nn.Module):
         self.lin3 = nn.Linear(hidden_size, 1)
 
     def forward(self, state, edge_index, deterministic=False):
+        print("state shape ", state.shape)
+        print("edge index shape ", edge_index.shape)
+        # Question: is each node passed independently through the network?
+        # not (17)->(256), instead (17, 13)->(17,256)
         out = F.relu(self.conv1(state, edge_index))
         x = out + state
         x = x.reshape(-1, self.act_dim, self.in_channels)
+        print("act dim ", self.act_dim, " in channels ", self.in_channels)
         x = F.leaky_relu(self.lin1(x))
+        print("after first layer ", x.shape)
         x = F.leaky_relu(self.lin2(x))
         x = F.softplus(self.lin3(x))
+        print("x shape ", x.shape)
         concentration = x.squeeze(-1)
         if deterministic:
             action = (concentration) / (concentration.sum() + 1e-20)
             log_prob = None
         else:
+            print("concentration shape ", concentration.shape)
             m = Dirichlet(concentration + 1e-20)
             action = m.rsample()
+            print("action shape ", action.shape)
             log_prob = m.log_prob(action)
         return action, log_prob
 

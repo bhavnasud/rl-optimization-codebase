@@ -14,16 +14,54 @@ from copy import deepcopy
 import json
 import random
 from torch_geometric.data import Data
+import matplotlib.pyplot as plt
 
+
+# # Function to check if graph is connected
+# def is_connected(graph):
+#     return nx.is_connected(graph)
+
+# Function to generate a random connected graph that is not complete
+def generate_connected_graph(num_nodes):
+    G = nx.DiGraph()
+    G.add_nodes_from(range(num_nodes))
+    
+    # Start with a spanning tree (connected graph with no cycles)
+    for i in range(1, num_nodes):
+        node_to_connect = random.randint(0, i-1)
+        G.add_edge(i, node_to_connect)
+        G.add_edge(node_to_connect, i)
+    
+    # # Add additional edges randomly to ensure it's not complete
+    # edges_to_add = num_nodes * 2
+    # while edges_to_add > 0:
+    #     node1 = random.randint(0, num_nodes-1)
+    #     node2 = random.randint(0, num_nodes-1)
+    #     if node1 != node2 and not G.has_edge(node1, node2):
+    #         G.add_edge(node1, node2)
+    #         G.add_edge(node2, node1)
+    #         edges_to_add -= 1
+    
+    return G
 
 class NetworkFlow:
     # initialization
     def __init__(
-        self, num_nodes=3
+        self, num_nodes=10
     ):
         # graph, complete graph for now
-        self.G = nx.complete_graph(num_nodes)  # node attr: 'amountOfCommodity', edge attr: 'time'
-        self.G = self.G.to_directed()
+        # self.G = nx.erdos_renyi_graph(num_nodes, p=0.15) # probability of edge?
+        # self.G = self.G.to_directed()
+
+        # Generate a connected graph that is not complete
+        self.G = generate_connected_graph(num_nodes)
+        # Check if the graph is connected (optional)
+        # print("Is the graph connected?", is_connected(self.G))
+
+        # Draw the graph
+        nx.draw(self.G, with_labels=True)
+        plt.show()
+        # print("edges ", self.G.edges)
         self.region = list(self.G)  # set of nodes
         self.edges = list(self.G.edges)
         # allows for variable total amount of commodity
@@ -34,6 +72,9 @@ class NetworkFlow:
         self.time = 0  # current time
         self.acc = defaultdict(dict)
         self.start_node, self.goal_node = random.choices(self.region, k=2)
+        print("start ", self.start_node, "end ", self.goal_node)
+        # shortest_path = nx.shortest_path(G, source=1, target=5)
+
         for n in self.region:
             self.acc[n][0] = self.total_commodity if n == self.start_node else 0
         for i in self.G.edges:
