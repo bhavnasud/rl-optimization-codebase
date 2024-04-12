@@ -23,14 +23,14 @@ import matplotlib.pyplot as plt
 
 # Function to generate a random connected graph that is not complete
 def generate_connected_graph(num_nodes):
-    G = nx.DiGraph()
-    G.add_nodes_from(range(num_nodes))
+    # G = nx.DiGraph()
+    # G.add_nodes_from(range(num_nodes))
     
-    # Start with a spanning tree (connected graph with no cycles)
-    for i in range(1, num_nodes):
-        node_to_connect = random.randint(0, i-1)
-        G.add_edge(i, node_to_connect)
-        G.add_edge(node_to_connect, i)
+    # # Start with a spanning tree (connected graph with no cycles)
+    # for i in range(1, num_nodes):
+    #     node_to_connect = random.randint(0, i-1)
+    #     G.add_edge(i, node_to_connect)
+    #     G.add_edge(node_to_connect, i)
     
     # # Add additional edges randomly to ensure it's not complete
     # edges_to_add = num_nodes * 2
@@ -41,7 +41,9 @@ def generate_connected_graph(num_nodes):
     #         G.add_edge(node1, node2)
     #         G.add_edge(node2, node1)
     #         edges_to_add -= 1
-    
+
+    G = nx.complete_graph(num_nodes)
+    G = G.to_directed()
     return G
 
 class NetworkFlow:
@@ -82,12 +84,11 @@ class NetworkFlow:
         self.reset()
 
     def get_edge_index(self):
-        # print("edges ", self.edges)
-        source_nodes, target_nodes = zip(*list(self.edges))
-        source_nodes = np.array(source_nodes)
-        target_nodes = np.array(target_nodes)
-        edges = torch.from_numpy(np.vstack((source_nodes, target_nodes))).to(torch.long)
-        return edges
+        edges = list(self.G.edges()) 
+        edge_index = np.array(edges).T
+        edge_index_tensor = torch.LongTensor(edge_index)
+        return edge_index_tensor
+
 
     def get_current_state(self):
         # current state (input to RL policy) includes current

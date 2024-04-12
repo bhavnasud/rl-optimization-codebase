@@ -110,7 +110,9 @@ class GNNActor(nn.Module):
     def forward(self, state, edge_index, deterministic=False):
         print("state shape ", state.shape)
         print("edge index shape ", edge_index.shape)
+        # TODO: try message passing neural net with edge features (carolin will send)
         # Question: is each node passed independently through the network?
+        # A: information is only shared in the convolution layer
         # not (17)->(256), instead (17, 13)->(17,256)
         out = F.relu(self.conv1(state, edge_index))
         x = out + state

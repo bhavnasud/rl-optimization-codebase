@@ -4,6 +4,7 @@ from tqdm import trange
 import numpy as np
 import torch
 from src.envs.network_flow_env import NetworkFlow
+from src.algos.a2c_gnn import A2C
 from src.algos.sac import SAC
 from src.algos.policy_network import PolicyNetwork
 from src.algos.reb_flow_solver import solveRebFlow
@@ -36,9 +37,10 @@ device = torch.device("cuda") if torch.cuda.is_available() else "cpu"
 #     critic_version=4,
 # ).to(device)
 
-policy_net = PolicyNetwork(input_size=env.nregion, hidden_size=256, output_size=env.nregion)
-optimizer = optim.Adam(policy_net.parameters(), lr=1e-3)
-
+model = A2C(env=env, input_size=1).to(device)
+# policy_net = PolicyNetwork(input_size=env.nregion, hidden_size=256, output_size=env.nregion)
+# optimizer = optim.Adam(policy_net.parameters(), lr=1e-3)
+model.train() #set model in train mode
 epochs = trange(NUM_EPOCHS)
 for i_episode in epochs:
     obs = env.reset()  # initialize environment
@@ -54,21 +56,24 @@ for i_episode in epochs:
     rewards = []
     while not done:
         obs = env.get_current_state()
-        state = torch.FloatTensor(obs.x)[:, 0]
-        # action_rl = model.select_action(obs)
-        print("state ", state)
-        action_rl, log_prob = policy_net(state)
-        log_probs.append(log_prob)
+        action_rl = model.select_action(obs)
+
+        # state = torch.FloatTensor(obs.x)[:, 0]
+        # action_rl, log_prob = policy_net(state)
+        # log_probs.append(log_prob)
         # convert from Dirichlet distribution to integer distribution
+        max_region = np.argmax(action_rl)
         desired_commodity_distribution = {
-            env.region[i]: round(
-                action_rl[i].detach().numpy() * env.total_commodity
-            )
+            env.region[i]: 1 if i == max_region else 0
             for i in range(len(env.region))
         }
-        # print("desired commodity distribution ", desired_commodity_distribution)
-        # reb flow solver assumes that it is always possible to achieve that desired
-        # commodity distribution (or better) which is not true in our case
+        # TODO: use round instead of argmax when amount of commodity > 1
+        # desired_commodity_distribution = {
+        #     env.region[i]: round(
+        #         action_rl[i] * env.total_commodity
+        #     )
+        #     for i in range(len(env.region))
+        # }
         action = solveRebFlow(
             env,
             "network_flow_reb",
@@ -82,6 +87,7 @@ for i_episode in epochs:
         next_state, reward, done = env.step(action)
         episode_reward += reward
         rewards.append(reward)
+        model.rewards.append(reward)
         # if step > 0:
         #     model.replay_buffer.store(
         #         obs, action_rl, reward, next_state
@@ -102,34 +108,36 @@ for i_episode in epochs:
         #         model.update(data=batch)
         #     else:
         #         print("not enough data!")
-    # Compute returns
-    returns = []
-    R = 0
-    gamma = 0.99
-    # print("rewards ", rewards)
-    for r in reversed(rewards):
-        R = r + gamma * R
-        returns.insert(0, R)
-
-    # Normalize returns
-    returns = torch.tensor(returns)
-    # print("returns before ", returns)
-    # print("mean ", returns.mean())
-    # print("std ", returns.std())
-    if len(returns) > 1:
-        returns = (returns - returns.mean()) / (returns.std() + 1e-8)
-    else:
-        returns = [0]
-    # print("returns ", returns)
-    # print("log probs ", log_probs)
-
-    # Policy gradient update
-    policy_loss = []
-    for log_prob, R in zip(log_probs, returns):
-        policy_loss.append(-log_prob * R)
     
-    optimizer.zero_grad()
-    policy_loss = torch.stack(policy_loss).sum()
-    policy_loss.backward()
-    optimizer.step()
+    # perform on-policy backprop
+    model.training_step()
+
+    # # Compute returns
+    # returns = []
+    # R = 0
+    # gamma = 0.99
+    # for r in reversed(rewards):
+    #     R = r + gamma * R
+    #     returns.insert(0, R)
+
+    # # Normalize returns
+    # returns = torch.tensor(returns)
+    # if len(returns) > 1:
+    #     returns = (returns - returns.mean()) / (returns.std() + 1e-8)
+    # else:
+    #     returns = [0]
+
+    # # Policy gradient update
+    # policy_loss = []
+    # for log_prob, R in zip(log_probs, returns):
+    #     # use -log_prob * advantage
+    #     # first get A2C working on fully connected with MLP
+    #     # then go to non fully connected with graph neural network
+    #     # add more edges to the tree to make problem simpler when trying non fully connected
+    #     policy_loss.append(-log_prob * R)
+
+    # optimizer.zero_grad()
+    # policy_loss = torch.stack(policy_loss).sum()
+    # policy_loss.backward()
+    # optimizer.step()
     print("episode ", i_episode + 1, "reward ", episode_reward)
