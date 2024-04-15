@@ -30,20 +30,41 @@ def generate_connected_graph(num_nodes):
     # for i in range(1, num_nodes):
     #     node_to_connect = random.randint(0, i-1)
     #     G.add_edge(i, node_to_connect)
-    #     G.add_edge(node_to_connect, i)
+    #     # G.add_edge(node_to_connect, i)
     
     # # Add additional edges randomly to ensure it's not complete
-    # edges_to_add = num_nodes * 2
+    # edges_to_add = num_nodes
     # while edges_to_add > 0:
     #     node1 = random.randint(0, num_nodes-1)
     #     node2 = random.randint(0, num_nodes-1)
     #     if node1 != node2 and not G.has_edge(node1, node2):
     #         G.add_edge(node1, node2)
-    #         G.add_edge(node2, node1)
+    #         # G.add_edge(node2, node1)
     #         edges_to_add -= 1
 
-    G = nx.complete_graph(num_nodes)
-    G = G.to_directed()
+    # G = nx.complete_graph(num_nodes)
+    # G = G.to_directed()
+
+
+    # Create a directed graph
+    G = nx.DiGraph()
+
+    # Add nodes
+    source_node = 0
+    goal_node = 4
+    other_nodes = [1, 2, 3]
+
+    # Add nodes to the graph
+    G.add_nodes_from([source_node, goal_node] + other_nodes)
+
+    # Add edges between nodes
+    # edges = [(0,1), (1, 0), (1, 2), (2, 1), (2, 4), (4, 2), (0,3), (3, 0), (3,4), (4,3)]
+    edges = [(0,1), (1, 2), (2, 4), (0,3), (3,4)]
+
+    G.add_edges_from(edges)
+
+    # Specify positions for nodes (for visualization purposes)
+    pos = nx.spring_layout(G)
     return G
 
 class NetworkFlow:
@@ -73,7 +94,9 @@ class NetworkFlow:
         self.nregion = len(self.G)
         self.time = 0  # current time
         self.acc = defaultdict(dict)
-        self.start_node, self.goal_node = random.choices(self.region, k=2)
+        self.start_node = 0
+        self.goal_node = 4
+        # self.start_node, self.goal_node = random.choices(self.region, k=2)
         print("start ", self.start_node, "end ", self.goal_node)
         # shortest_path = nx.shortest_path(G, source=1, target=5)
 
@@ -84,7 +107,7 @@ class NetworkFlow:
         self.reset()
 
     def get_edge_index(self):
-        edges = list(self.G.edges()) 
+        edges = list(self.G.edges()) + [(i, i) for i in self.G.nodes]
         edge_index = np.array(edges).T
         edge_index_tensor = torch.LongTensor(edge_index)
         return edge_index_tensor
@@ -98,7 +121,8 @@ class NetworkFlow:
         node_data = torch.FloatTensor([self.acc[i][self.time] for i in range(len(self.G.nodes))]).unsqueeze(1)
         # print("node data ", node_data)
         edge_data = torch.FloatTensor([self.G.edges[i,j]['time'] for i,j in self.edges]).unsqueeze(1)
-        return Data(node_data, self.edge_index, edge_data)
+        # return Data(node_data, self.edge_index, edge_data)
+        return Data(node_data, self.edge_index)
 
     def step(self, flows):
         """
@@ -134,7 +158,7 @@ class NetworkFlow:
         if self.acc[self.goal_node][self.time] == self.total_commodity:
             # print("REACHED GOAL ", self.goal_node)
             # print(self.acc)
-            return self.get_current_state(), 0, True
+            return self.get_current_state(), 1, True
         else:
             # TODO: normalize reward by travel time of shortest path
             return self.get_current_state(), -1, False

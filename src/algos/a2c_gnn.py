@@ -18,9 +18,10 @@ from torch import nn
 import torch.nn.functional as F
 from torch.distributions import Dirichlet
 from torch_geometric.data import Data
-from torch_geometric.nn import GCNConv
+from torch_geometric.nn import GCNConv, DenseSAGEConv, DenseGraphConv
 from torch_geometric.nn import global_mean_pool, global_max_pool
 from torch_geometric.utils import grid
+from torch_geometric.utils import to_dense_adj
 from collections import namedtuple
 
 SavedAction = namedtuple('SavedAction', ['log_prob', 'value'])
@@ -40,19 +41,27 @@ class GNNActor(nn.Module):
         super().__init__()
         
         self.conv1 = GCNConv(in_channels, in_channels)
-        self.lin1 = nn.Linear(in_channels, 256)
-        self.lin2 = nn.Linear(256, 256)
-        self.lin3 = nn.Linear(256, 1)
-        # self.lin1 = nn.Linear(10, 256)
+        self.lin1 = nn.Linear(in_channels, 32)
+        self.lin2 = nn.Linear(32, 32)
+        self.lin3 = nn.Linear(32, 1)
+        # self.lin1 = nn.Linear(5, 256)
         # self.lin2 = nn.Linear(256, 256)
         # self.lin3 = nn.Linear(256, 10)
     
     def forward(self, data):
-        out = F.relu(self.conv1(data.x, data.edge_index))
+        # print("edge index ", data.edge_index)
+        # print("input ", data.x)
+        # adjacency_matrix = to_dense_adj(data.edge_index)
+        # print("adjacency matrix ", adjacency_matrix.shape)
+        # print("data shape ", data.x.shape)
+        out = F.leaky_relu(self.conv1(data.x, data.edge_index))
+        # print("conv output ", out)
         x = out + data.x
-        x = F.relu(self.lin1(x))
-        x = F.relu(self.lin2(x))
+        # print("after adding node data ", x)
+        x = F.leaky_relu(self.lin1(x))
+        x = F.leaky_relu(self.lin2(x))
         x = self.lin3(x)
+        # print("actor output ", x)
         return x
         # x = F.leaky_relu(self.lin1(data.x[:, 0]))
         # # print("layer 1 ", x)
@@ -74,19 +83,25 @@ class GNNCritic(nn.Module):
         super().__init__()
         
         self.conv1 = GCNConv(in_channels, in_channels)
-        self.lin1 = nn.Linear(in_channels, 256)
-        self.lin2 = nn.Linear(256, 256)
-        self.lin3 = nn.Linear(256, 1)
-        # self.lin1 = nn.Linear(10, 256)
+        self.lin1 = nn.Linear(in_channels, 32)
+        self.lin2 = nn.Linear(32, 32)
+        self.lin3 = nn.Linear(32, 1)
+        # self.lin1 = nn.Linear(5, 256)
         # self.lin2 = nn.Linear(256, 256)
         # self.lin3 = nn.Linear(256, 1)
     
     def forward(self, data):
-        out = F.relu(self.conv1(data.x, data.edge_index))
+        adjacency_matrix = to_dense_adj(data.edge_index)
+        # print("adjacency matrix ", adjacency_matrix)
+        # out = F.relu(self.conv1(data.x, adjacency_matrix))[0]
+        # out = F.relu(self.conv1(data.x, data.edge_index))
+        out = F.leaky_relu(self.conv1(data.x, data.edge_index))
+        # print("critic output ", out)
+        # print("critic output [0] ", out[0])
         x = out + data.x 
         x = torch.sum(x, dim=0)
-        x = F.relu(self.lin1(x))
-        x = F.relu(self.lin2(x))
+        x = F.leaky_relu(self.lin1(x))
+        x = F.leaky_relu(self.lin2(x))
         x = self.lin3(x)
         return x
         # x = F.leaky_relu(self.lin1(data.x[:, 0]))
@@ -128,26 +143,36 @@ class A2C(nn.Module):
         """
         # parse raw environment data in model format
         x = self.parse_obs(obs).to(self.device)
+        # print("x ", x)
         
         # actor: computes concentration parameters of a Dirichlet distribution
         a_out = self.actor(x)
         concentration = F.softplus(a_out).reshape(-1) + jitter
 
         # critic: estimates V(s_t)
+        # print("x before calling critic ", x)
         value = self.critic(x)
         return concentration, value
     
     def parse_obs(self, obs):
         return obs
     
-    def select_action(self, obs):
-        concentration, value = self.forward(obs)
-        
-        m = Dirichlet(concentration)
-        
-        action = m.sample()
-        self.saved_actions.append(SavedAction(m.log_prob(action), value))
-        return list(action.cpu().numpy())
+    def select_action(self, obs, deterministic=False):
+        # print("state ", obs.x)
+        concentration, value = self.forward(obs, jitter = 0 if deterministic else 1e-20)
+        # print("concentration ", concentration)
+        if deterministic:
+            action = (concentration) / (concentration.sum())
+            return list(action.cpu().numpy())
+        else:
+            # print("concentration ", concentration)
+            # print("value ", value)
+
+            m = Dirichlet(concentration)
+            action = m.sample()
+            # print("dirichlet sampled action ", action)
+            self.saved_actions.append(SavedAction(m.log_prob(action), value))
+            return list(action.cpu().numpy())
 
     def training_step(self):
         R = 0
@@ -163,13 +188,19 @@ class A2C(nn.Module):
             returns.insert(0, R)
 
         returns = torch.tensor(returns)
-        if (len(returns) == 1 and returns[0] == 0):
+        # print("returns ", returns)
+        if (len(returns) == 1):
             std_dev = 0
         else:
             std_dev = returns.std()
         returns = (returns - returns.mean()) / (std_dev + self.eps)
 
+        # print("normalized returns ", returns)
+        # print("saved actions ", saved_actions)
+
         for (log_prob, value), R in zip(saved_actions, returns):
+            # print("R ", R)
+            # print("value ", value)
             advantage = R - value.item()
 
             # calculate actor (policy) loss 

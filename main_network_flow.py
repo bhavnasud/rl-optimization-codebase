@@ -15,7 +15,7 @@ import copy
 import torch.optim as optim
 import random
 
-NUM_EPOCHS = 10000
+NUM_EPOCHS = 50000
 CPLEX_PATH = "/Applications/CPLEX_Studio2211/opl/bin/arm64_osx/"
 BATCH_SIZE = 100
 
@@ -40,9 +40,9 @@ device = torch.device("cuda") if torch.cuda.is_available() else "cpu"
 model = A2C(env=env, input_size=1).to(device)
 # policy_net = PolicyNetwork(input_size=env.nregion, hidden_size=256, output_size=env.nregion)
 # optimizer = optim.Adam(policy_net.parameters(), lr=1e-3)
-model.train() #set model in train mode
 epochs = trange(NUM_EPOCHS)
 for i_episode in epochs:
+    model.train() #set model in train mode
     obs = env.reset()  # initialize environment
     episode_reward = 0
     actions = []
@@ -56,13 +56,17 @@ for i_episode in epochs:
     rewards = []
     while not done:
         obs = env.get_current_state()
+        # print("current state ", obs.x)
+        cur_region = np.argmax(obs.x)
         action_rl = model.select_action(obs)
 
         # state = torch.FloatTensor(obs.x)[:, 0]
         # action_rl, log_prob = policy_net(state)
         # log_probs.append(log_prob)
         # convert from Dirichlet distribution to integer distribution
+        # print("action rl ", action_rl)
         max_region = np.argmax(action_rl)
+        # print("max region ", max_region)
         desired_commodity_distribution = {
             env.region[i]: 1 if i == max_region else 0
             for i in range(len(env.region))
@@ -74,17 +78,26 @@ for i_episode in epochs:
         #     )
         #     for i in range(len(env.region))
         # }
-        action = solveRebFlow(
-            env,
-            "network_flow_reb",
-            desired_commodity_distribution,
-            CPLEX_PATH,
-            "saved_files",
-            use_current_time=True
-        )
+        action = []
+        for edge in env.edges:
+            (i,j) = edge
+            if j == max_region and i == cur_region:
+                action.append(1)
+            else:
+                action.append(0)
+
+        # action = solveRebFlow(
+        #     env,
+        #     "network_flow_reb",
+        #     desired_commodity_distribution,
+        #     CPLEX_PATH,
+        #     "saved_files",
+        #     use_current_time=True
+        # )
 
         # Take action in environment
         next_state, reward, done = env.step(action)
+        # print("next state ", next_state.x)
         episode_reward += reward
         rewards.append(reward)
         model.rewards.append(reward)
@@ -141,3 +154,42 @@ for i_episode in epochs:
     # policy_loss.backward()
     # optimizer.step()
     print("episode ", i_episode + 1, "reward ", episode_reward)
+
+    if i_episode % 10 == 0:
+        model.eval()
+        print("RUNNING VALIDATION TEST")
+        test_epochs = trange(10)
+        with torch.no_grad():
+            obs = env.reset()  # initialize environment
+            episode_reward = 0
+            actions = []
+
+            current_eps = []
+            done = False
+            step = 0
+            prev_obs = None
+            while not done and step < 10:
+                obs = env.get_current_state()
+                cur_region = np.argmax(obs.x)
+                # print("Cur region ", cur_region)
+                action_rl = model.select_action(obs, deterministic=True)
+                # print("action rl ", action_rl)
+                max_region = np.argmax(action_rl)
+                desired_commodity_distribution = {
+                    env.region[i]: 1 if i == max_region else 0
+                    for i in range(len(env.region))
+                }
+                action = []
+                for edge in env.edges:
+                    (i,j) = edge
+                    if j == max_region and i == cur_region:
+                        action.append(1)
+                    else:
+                        action.append(0)
+                # Take action in environment
+                next_state, reward, done = env.step(action)
+                # print("next state ", next_state.x)
+                episode_reward += reward
+                rewards.append(reward)
+                step += 1      
+            print("validation reward ", episode_reward)
