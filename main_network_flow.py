@@ -15,7 +15,7 @@ import copy
 import torch.optim as optim
 import random
 
-NUM_EPOCHS = 50000
+NUM_EPOCHS = 10000000
 CPLEX_PATH = "/Applications/CPLEX_Studio2211/opl/bin/arm64_osx/"
 BATCH_SIZE = 100
 
@@ -37,13 +37,14 @@ device = torch.device("cuda") if torch.cuda.is_available() else "cpu"
 #     critic_version=4,
 # ).to(device)
 
-model = A2C(env=env, input_size=1).to(device)
+model = A2C(env=env, input_size=2).to(device)
 # policy_net = PolicyNetwork(input_size=env.nregion, hidden_size=256, output_size=env.nregion)
 # optimizer = optim.Adam(policy_net.parameters(), lr=1e-3)
 epochs = trange(NUM_EPOCHS)
 for i_episode in epochs:
     model.train() #set model in train mode
     obs = env.reset()  # initialize environment
+    print("start node ", env.start_node, " goal node ", env.goal_node)
     episode_reward = 0
     actions = []
 
@@ -56,15 +57,15 @@ for i_episode in epochs:
     rewards = []
     while not done:
         obs = env.get_current_state()
-        # print("current state ", obs.x)
-        cur_region = np.argmax(obs.x)
+        # print("current state ", obs.x[:, 0])
+        cur_region = np.argmax(obs.x[:, 0])
         action_rl = model.select_action(obs)
+        # print("action rl ", action_rl)
 
         # state = torch.FloatTensor(obs.x)[:, 0]
         # action_rl, log_prob = policy_net(state)
         # log_probs.append(log_prob)
         # convert from Dirichlet distribution to integer distribution
-        # print("action rl ", action_rl)
         max_region = np.argmax(action_rl)
         # print("max region ", max_region)
         desired_commodity_distribution = {
@@ -106,9 +107,9 @@ for i_episode in epochs:
         #         obs, action_rl, reward, next_state
         #     )
 
-        epochs.set_description(
-            f"Episode {i_episode+1} | Reward: {episode_reward:.2f}"
-        )
+        # epochs.set_description(
+        #     f"Episode {i_episode+1} | Reward: {episode_reward:.2f}"
+        # )
 
         # prev_obs = copy.deepcopy(obs)
         
@@ -158,9 +159,9 @@ for i_episode in epochs:
     if i_episode % 10 == 0:
         model.eval()
         print("RUNNING VALIDATION TEST")
-        test_epochs = trange(10)
         with torch.no_grad():
-            obs = env.reset()  # initialize environment
+            env.reset(start_to_end_test=True)  # initialize environment
+            print("start node ", env.start_node, " goal node ", env.goal_node)
             episode_reward = 0
             actions = []
 
@@ -170,7 +171,7 @@ for i_episode in epochs:
             prev_obs = None
             while not done and step < 10:
                 obs = env.get_current_state()
-                cur_region = np.argmax(obs.x)
+                cur_region = np.argmax(obs.x[:, 0])
                 # print("Cur region ", cur_region)
                 action_rl = model.select_action(obs, deterministic=True)
                 # print("action rl ", action_rl)
@@ -190,6 +191,5 @@ for i_episode in epochs:
                 next_state, reward, done = env.step(action)
                 # print("next state ", next_state.x)
                 episode_reward += reward
-                rewards.append(reward)
                 step += 1      
             print("validation reward ", episode_reward)

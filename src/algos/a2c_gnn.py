@@ -41,22 +41,18 @@ class GNNActor(nn.Module):
         super().__init__()
         
         self.conv1 = GCNConv(in_channels, in_channels)
-        self.lin1 = nn.Linear(in_channels, 32)
-        self.lin2 = nn.Linear(32, 32)
-        self.lin3 = nn.Linear(32, 1)
+        self.lin1 = nn.Linear(in_channels, 8)
+        self.lin2 = nn.Linear(8, 8)
+        self.lin3 = nn.Linear(8, 1)
         # self.lin1 = nn.Linear(5, 256)
         # self.lin2 = nn.Linear(256, 256)
-        # self.lin3 = nn.Linear(256, 10)
+        # self.lin3 = nn.Linear(256, 5)
     
     def forward(self, data):
-        # print("edge index ", data.edge_index)
-        # print("input ", data.x)
-        # adjacency_matrix = to_dense_adj(data.edge_index)
-        # print("adjacency matrix ", adjacency_matrix.shape)
-        # print("data shape ", data.x.shape)
         out = F.leaky_relu(self.conv1(data.x, data.edge_index))
-        # print("conv output ", out)
+        # print("Out ", out)
         x = out + data.x
+        # print("after adding x ", x)
         # print("after adding node data ", x)
         x = F.leaky_relu(self.lin1(x))
         x = F.leaky_relu(self.lin2(x))
@@ -83,22 +79,16 @@ class GNNCritic(nn.Module):
         super().__init__()
         
         self.conv1 = GCNConv(in_channels, in_channels)
-        self.lin1 = nn.Linear(in_channels, 32)
-        self.lin2 = nn.Linear(32, 32)
-        self.lin3 = nn.Linear(32, 1)
+        self.lin1 = nn.Linear(in_channels, 8)
+        self.lin2 = nn.Linear(8, 8)
+        self.lin3 = nn.Linear(8, 1)
         # self.lin1 = nn.Linear(5, 256)
         # self.lin2 = nn.Linear(256, 256)
         # self.lin3 = nn.Linear(256, 1)
     
     def forward(self, data):
-        adjacency_matrix = to_dense_adj(data.edge_index)
-        # print("adjacency matrix ", adjacency_matrix)
-        # out = F.relu(self.conv1(data.x, adjacency_matrix))[0]
-        # out = F.relu(self.conv1(data.x, data.edge_index))
         out = F.leaky_relu(self.conv1(data.x, data.edge_index))
-        # print("critic output ", out)
-        # print("critic output [0] ", out[0])
-        x = out + data.x 
+        x = out + data.x
         x = torch.sum(x, dim=0)
         x = F.leaky_relu(self.lin1(x))
         x = F.leaky_relu(self.lin2(x))
@@ -129,7 +119,6 @@ class A2C(nn.Module):
         
         self.actor = GNNActor(self.input_size, self.hidden_size)
         self.critic = GNNCritic(self.input_size, self.hidden_size)
-        
         self.optimizers = self.configure_optimizers()
         
         # action & reward buffer
@@ -143,10 +132,11 @@ class A2C(nn.Module):
         """
         # parse raw environment data in model format
         x = self.parse_obs(obs).to(self.device)
-        # print("x ", x)
+        # print("x ", x.x)
         
         # actor: computes concentration parameters of a Dirichlet distribution
         a_out = self.actor(x)
+        # print("a out ", a_out)
         concentration = F.softplus(a_out).reshape(-1) + jitter
 
         # critic: estimates V(s_t)

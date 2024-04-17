@@ -23,6 +23,7 @@ import matplotlib.pyplot as plt
 
 # Function to generate a random connected graph that is not complete
 def generate_connected_graph(num_nodes):
+    #### Random graph
     # G = nx.DiGraph()
     # G.add_nodes_from(range(num_nodes))
     
@@ -47,25 +48,44 @@ def generate_connected_graph(num_nodes):
 
 
     # Create a directed graph
+    ##### Graph 1
+    # G = nx.DiGraph()
+
+    # # Add nodes
+    # source_node = 0
+    # goal_node = 4
+    # other_nodes = [1, 2, 3]
+
+    # # Add nodes to the graph
+    # G.add_nodes_from([source_node, goal_node] + other_nodes)
+
+    # # Add edges between nodes
+    # edges = [(0,1), (1, 0), (1, 2), (2, 1), (2, 4), (4, 2), (0,3), (3, 0), (3,4), (4,3)]
+    # # edges = [(0,1), (1, 2), (2, 4), (0,3), (3,4)]
+
+    # G.add_edges_from(edges)
+
+    ###### Graph 2
     G = nx.DiGraph()
 
     # Add nodes
-    source_node = 0
-    goal_node = 4
-    other_nodes = [1, 2, 3]
+    start_node = 0
+    goal_node = 7
+    other_nodes = [1, 2, 3, 4, 5, 6]
 
     # Add nodes to the graph
-    G.add_nodes_from([source_node, goal_node] + other_nodes)
+    G.add_nodes_from([start_node, goal_node] + other_nodes)
 
     # Add edges between nodes
-    # edges = [(0,1), (1, 0), (1, 2), (2, 1), (2, 4), (4, 2), (0,3), (3, 0), (3,4), (4,3)]
-    edges = [(0,1), (1, 2), (2, 4), (0,3), (3,4)]
+    edges = [(0, 1), (1, 0), (0, 2), (2, 0), (0, 3), (3, 0), (1, 4), (4, 1), (1, 5), (5, 1), (2, 4), (4, 2), (2, 5), (5, 2), (2, 6), (6, 2), (3, 5), (5, 3), (3, 6), (6, 3), (4, 7), (7, 4), (5, 7), (7, 5), (6, 7), (7, 6),
+             (0, 0), (1, 1), (2, 2), (3, 3), (4, 4), (5, 5), (6, 6), (7,7)]
 
     G.add_edges_from(edges)
 
-    # Specify positions for nodes (for visualization purposes)
     pos = nx.spring_layout(G)
-    return G
+    nx.draw(G, pos, with_labels=True)
+    plt.show()
+    return G, start_node, goal_node
 
 class NetworkFlow:
     # initialization
@@ -77,13 +97,12 @@ class NetworkFlow:
         # self.G = self.G.to_directed()
 
         # Generate a connected graph that is not complete
-        self.G = generate_connected_graph(num_nodes)
+        self.G, self.start_node, self.goal_node = generate_connected_graph(num_nodes)
+
+        self.random_node_features = torch.randn(len(self.G))
         # Check if the graph is connected (optional)
         # print("Is the graph connected?", is_connected(self.G))
 
-        # Draw the graph
-        nx.draw(self.G, with_labels=True)
-        plt.show()
         # print("edges ", self.G.edges)
         self.region = list(self.G)  # set of nodes
         self.edges = list(self.G.edges)
@@ -92,10 +111,10 @@ class NetworkFlow:
         # edges of graph in format expected by RL network
         self.edge_index = self.get_edge_index()
         self.nregion = len(self.G)
+        
         self.time = 0  # current time
         self.acc = defaultdict(dict)
-        self.start_node = 0
-        self.goal_node = 4
+        
         # self.start_node, self.goal_node = random.choices(self.region, k=2)
         print("start ", self.start_node, "end ", self.goal_node)
         # shortest_path = nx.shortest_path(G, source=1, target=5)
@@ -107,8 +126,8 @@ class NetworkFlow:
         self.reset()
 
     def get_edge_index(self):
-        edges = list(self.G.edges()) + [(i, i) for i in self.G.nodes]
-        edge_index = np.array(edges).T
+        # edges = self.edges + [(i, i) for i in self.G.nodes]
+        edge_index = np.array(self.edges).T
         edge_index_tensor = torch.LongTensor(edge_index)
         return edge_index_tensor
 
@@ -119,6 +138,7 @@ class NetworkFlow:
         # travel times, 
         # and graph layout (self.edge_index) 
         node_data = torch.FloatTensor([self.acc[i][self.time] for i in range(len(self.G.nodes))]).unsqueeze(1)
+        node_data = torch.hstack([node_data, self.goal_node_feature[:, None]])
         # print("node data ", node_data)
         edge_data = torch.FloatTensor([self.G.edges[i,j]['time'] for i,j in self.edges]).unsqueeze(1)
         # return Data(node_data, self.edge_index, edge_data)
@@ -163,14 +183,22 @@ class NetworkFlow:
             # TODO: normalize reward by travel time of shortest path
             return self.get_current_state(), -1, False
             
-    def reset(self):
+    def reset(self, start_to_end_test=False):
         # resets environment for next trajectory, randomly chooses
         # start and goal node and travel times
         # all commodity starts at start node
         self.time = 0  # current time
         self.acc = defaultdict(dict) # maps nodes to time to amount of commodity at that node at that time
-        # self.start_node, self.goal_node = random.choices(self.region, k=2)
+        if start_to_end_test:
+            self.start_node, self.goal_node = 0, 7
+        else:
+            self.start_node, self.goal_node = random.choices(self.region, k=2)
+        self.goal_node_feature = torch.IntTensor([1 if i == self.goal_node else 0 for i in range(self.nregion)])
         for n in self.region:
             self.acc[n][0] = self.total_commodity if n == self.start_node else 0
         # for i in self.G.edges:
-        #     self.G.edges[i]['time'] = random.randint(1,5)
+        #     (a, b) = i
+        #     if a == b:
+        #         self.G.edges[i]['time'] = 0
+        #     else:
+        #         self.G.edges[i]['time'] = random.randint(1,5)
