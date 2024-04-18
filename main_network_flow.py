@@ -57,8 +57,8 @@ for i_episode in epochs:
     rewards = []
     while not done:
         obs = env.get_current_state()
-        # print("current state ", obs.x[:, 0])
-        cur_region = np.argmax(obs.x[:, 0])
+        # print("current state ", obs.x[:, 0], " and goal ", env.goal_node)
+        cur_region = np.argmax(obs.x[:, 0]).item()
         action_rl = model.select_action(obs)
         # print("action rl ", action_rl)
 
@@ -80,12 +80,22 @@ for i_episode in epochs:
         #     for i in range(len(env.region))
         # }
         action = []
-        for edge in env.edges:
+        self_edge_index = -1
+        for edge_index, edge in enumerate(env.edges):
             (i,j) = edge
+            if i == cur_region and j == cur_region:
+                self_edge_index = edge_index
+
             if j == max_region and i == cur_region:
                 action.append(1)
             else:
                 action.append(0)
+         
+        # if it is not possible to get from i to j, default to taking a self edge
+        # print("is ", (cur_region, max_region), " not in env edges? ", (cur_region, max_region) not in env.G.edges)
+        if (cur_region, max_region) not in env.G.edges:
+            action[self_edge_index] += 1
+
 
         # action = solveRebFlow(
         #     env,
@@ -98,6 +108,8 @@ for i_episode in epochs:
 
         # Take action in environment
         next_state, reward, done = env.step(action)
+        # print("got next state ", next_state.x)
+        # print("got reward ", reward)
         # print("next state ", next_state.x)
         episode_reward += reward
         rewards.append(reward)
@@ -187,6 +199,9 @@ for i_episode in epochs:
                         action.append(1)
                     else:
                         action.append(0)
+                # if it is not possible to get from i to j, default to taking a self edge
+                if (cur_region, max_region) not in env.G.edges:
+                    action[self_edge_index] += 1
                 # Take action in environment
                 next_state, reward, done = env.step(action)
                 # print("next state ", next_state.x)

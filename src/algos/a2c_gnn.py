@@ -49,7 +49,7 @@ class GNNActor(nn.Module):
         # self.lin3 = nn.Linear(256, 5)
     
     def forward(self, data):
-        out = F.leaky_relu(self.conv1(data.x, data.edge_index))
+        out = F.leaky_relu(self.conv1(data.x, data.edge_index, edge_weight=data.edge_attr))
         # print("Out ", out)
         x = out + data.x
         # print("after adding x ", x)
@@ -87,7 +87,7 @@ class GNNCritic(nn.Module):
         # self.lin3 = nn.Linear(256, 1)
     
     def forward(self, data):
-        out = F.leaky_relu(self.conv1(data.x, data.edge_index))
+        out = F.leaky_relu(self.conv1(data.x, data.edge_index, edge_weight=data.edge_attr))
         x = out + data.x
         x = torch.sum(x, dim=0)
         x = F.leaky_relu(self.lin1(x))
