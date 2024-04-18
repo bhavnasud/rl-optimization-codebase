@@ -46,8 +46,6 @@ def generate_connected_graph(num_nodes):
     # G = nx.complete_graph(num_nodes)
     # G = G.to_directed()
 
-
-    # Create a directed graph
     ##### Graph 1
     # G = nx.DiGraph()
 
@@ -88,45 +86,30 @@ def generate_connected_graph(num_nodes):
     return G, start_node, goal_node
 
 class NetworkFlow:
-    # initialization
     def __init__(
         self, num_nodes=10
     ):
-        # graph, complete graph for now
-        # self.G = nx.erdos_renyi_graph(num_nodes, p=0.15) # probability of edge?
-        # self.G = self.G.to_directed()
-
         # Generate a connected graph that is not complete
         self.G, self.start_node, self.goal_node = generate_connected_graph(num_nodes)
-
-        self.random_node_features = torch.randn(len(self.G))
-        # Check if the graph is connected (optional)
-        # print("Is the graph connected?", is_connected(self.G))
-
-        # print("edges ", self.G.edges)
         self.region = list(self.G)  # set of nodes
         self.edges = list(self.G.edges)
-        # allows for variable total amount of commodity
         self.total_commodity = 1
-        # edges of graph in format expected by RL network
         self.edge_index = self.get_edge_index()
         self.nregion = len(self.G)
         
         self.time = 0  # current time
         self.acc = defaultdict(dict)
-        
-        # self.start_node, self.goal_node = random.choices(self.region, k=2)
-        print("start ", self.start_node, "end ", self.goal_node)
-        # shortest_path = nx.shortest_path(G, source=1, target=5)
-
-        for n in self.region:
-            self.acc[n][0] = self.total_commodity if n == self.start_node else 0
         for i in self.G.edges:
-            self.G.edges[i]['time'] = 1
+            (a, b) = i
+            # self edges will always have travel time 1
+            if a == b:
+                self.G.edges[i]['originalTime'] = 1
+            # all other edges have random travel time between 1 and 5
+            else:
+                self.G.edges[i]['originalTime'] = random.randint(1,5)
         self.reset()
 
     def get_edge_index(self):
-        # edges = self.edges + [(i, i) for i in self.G.nodes]
         edge_index = np.array(self.edges).T
         edge_index_tensor = torch.LongTensor(edge_index)
         return edge_index_tensor
@@ -135,14 +118,12 @@ class NetworkFlow:
     def get_current_state(self):
         # current state (input to RL policy) includes current
         # commodity distribution (integer distribution that adds up to total commodity), 
+        # where the goal node is,
         # travel times, 
         # and graph layout (self.edge_index) 
         node_data = torch.FloatTensor([self.acc[i][self.time] for i in range(len(self.G.nodes))]).unsqueeze(1)
         node_data = torch.hstack([node_data, self.goal_node_feature[:, None]])
-        # print("node data ", node_data)
-        edge_data = torch.FloatTensor([self.G.edges[i,j]['time'] for i,j in self.edges]).unsqueeze(1)
-        # return Data(node_data, self.edge_index, edge_data)
-        return Data(node_data, self.edge_index, edge_data)
+        return Data(node_data, self.edge_index, self.edge_data)
 
     def step(self, flows):
         """
@@ -151,10 +132,9 @@ class NetworkFlow:
         Returns:
         next state (Data object)
         integer reward for that step
-            reward is 0 if all commodity reaches goal, -1 otherwise
+            reward is -travel_time, plus 1 if all commodity reaches goal
         boolean indicating whether trajectory is over or not
-            currently trajectory only ends when all commodity reaches goal,
-            should I set a number of steps limit?
+            currently trajectory only ends when all commodity reaches goal
         """
         self.reward = 0
         # copy commodity distribution from current time to next
@@ -170,20 +150,15 @@ class NetworkFlow:
             if flow > 0:
                 self.acc[i][self.time + 1] -= flow
                 self.acc[j][self.time + 1] += flow
-                # print(" calculating reward from ", (i, j), " as ", self.G.edges[(i,j)]['time'], " times flow ", flow)
                 total_travel_time += self.G.edges[(i,j)]['time'] * flow
         # check that commodities were conserved (no node has negative commodity)
         for n in self.region:
-            if self.acc[n][self.time + 1] < 0:
-                print("NEGATIVE COMMODITY AT NODE ", n)
+            assert self.acc[n][self.time + 1] >= 0
         self.time += 1
-        # 0 reward if all commodity at goal, -1 otherwise
+        # return next state, reward, trajectory complete boolean
         if self.acc[self.goal_node][self.time] == self.total_commodity:
-            # print("REACHED GOAL ", self.goal_node)
-            # print(self.acc)
             return self.get_current_state(), -total_travel_time + 1, True
         else:
-            # TODO: normalize reward by travel time of shortest path
             return self.get_current_state(), -total_travel_time, False
             
     def reset(self, start_to_end_test=False):
@@ -193,30 +168,30 @@ class NetworkFlow:
         self.time = 0  # current time
         self.acc = defaultdict(dict) # maps nodes to time to amount of commodity at that node at that time
         if start_to_end_test:
-            self.start_node, self.goal_node = 0, 7
+            self.start_node, self.goal_node = 0, self.nregion - 1
         else:
             self.start_node, self.goal_node = np.random.choice(self.region, 2, replace=False)
         self.goal_node_feature = torch.IntTensor([1 if i == self.goal_node else 0 for i in range(self.nregion)])
         for n in self.region:
             self.acc[n][0] = self.total_commodity if n == self.start_node else 0
-        for i in self.G.edges:
-            (a, b) = i
-            if a == b:
-                self.G.edges[i]['time'] = 1
-            else:
-                self.G.edges[i]['time'] = random.randint(1,5)
-                # print("time for edge ", (a, b), " is ", self.G.edges[i]['time'])
-        shortest_path = nx.shortest_path(self.G, source=self.start_node, target=self.goal_node, weight='time')
-
+        # for i in self.G.edges:
+        #     (a, b) = i
+        #     # self edges will always have travel time 1
+        #     if a == b:
+        #         self.G.edges[i]['originalTime'] = 1
+        #     # all other edges have random travel time between 1 and 5
+        #     else:
+        #         self.G.edges[i]['originalTime'] = random.randint(1,5)
+        
+        # normalize travel times by travel time of shortest path
+        shortest_path = nx.shortest_path(self.G, source=self.start_node, target=self.goal_node, weight='originalTime')
         shortest_path_travel_time = 0
         for n in range(len(shortest_path) - 1):
             (a, b) = shortest_path[n], shortest_path[n + 1]
-            shortest_path_travel_time += self.G.edges[(a,b)]['time']
-
-        # print("shortest path ", shortest_path)
-        # print("shortest path travel time ", shortest_path_travel_time)
-        # normalize travel times by length of shortest path
+            shortest_path_travel_time += self.G.edges[(a,b)]['originalTime']
         for i in self.G.edges:
-            self.G.edges[i]['time'] = self.G.edges[i]['time'] / float(shortest_path_travel_time)
+            # self.G.edges[i]['time'] = self.G.edges[i]['originalTime'] / float(shortest_path_travel_time)
+            self.G.edges[i]['time'] = 1
             (a, b) = i
-            # print("set edge ", (a, b), " to have travel time ", self.G.edges[i]['time'])
+        self.edge_data = torch.FloatTensor([self.G.edges[i,j]['time'] for i,j in self.edges]).unsqueeze(1)
+
