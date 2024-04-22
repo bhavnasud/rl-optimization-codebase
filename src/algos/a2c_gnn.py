@@ -42,8 +42,7 @@ class GNNActor(nn.Module):
         self.lin3 = nn.Linear(8, 1)
     
     def forward(self, data):
-        # out = F.leaky_relu(self.conv1(data.x, data.edge_index, edge_weight=data.edge_attr))
-        out = F.leaky_relu(self.conv1(data.x, data.edge_index))
+        out = F.leaky_relu(self.conv1(data.x, data.edge_index, edge_weight=data.edge_attr))
         x = out + data.x
         x = F.leaky_relu(self.lin1(x))
         x = F.leaky_relu(self.lin2(x))
@@ -68,8 +67,7 @@ class GNNCritic(nn.Module):
         self.lin3 = nn.Linear(8, 1)
     
     def forward(self, data):
-        # out = F.leaky_relu(self.conv1(data.x, data.edge_index, edge_weight=data.edge_attr))
-        out = F.leaky_relu(self.conv1(data.x, data.edge_index))
+        out = F.leaky_relu(self.conv1(data.x, data.edge_index, edge_weight=data.edge_attr))
         x = out + data.x
         x = torch.sum(x, dim=0)
         x = F.leaky_relu(self.lin1(x))

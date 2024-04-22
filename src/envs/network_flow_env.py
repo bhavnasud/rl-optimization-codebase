@@ -128,7 +128,8 @@ class NetworkFlow:
     def step(self, flows):
         """
         Params:
-            flows is a list of edge flows corresponding to self.edges
+            flows is a map from edge to edge flows
+            only contains nonzero flows
         Returns:
         next state (Data object)
         integer reward for that step
@@ -142,9 +143,9 @@ class NetworkFlow:
             self.acc[n][self.time + 1] = self.acc[n][self.time]
         # add flows to commodity distribution for next timestamp
         total_travel_time = 0
-        for n, flow in enumerate(flows):
-            [i, j] = self.edges[n]
-            if (i, j) not in self.G.edges:
+        for edge, flow in flows.items():
+            (i, j) = edge
+            if edge not in self.G.edges:
                 continue
             # update the position of the commodities
             if flow > 0:
@@ -157,7 +158,7 @@ class NetworkFlow:
         self.time += 1
         # return next state, reward, trajectory complete boolean
         if self.acc[self.goal_node][self.time] == self.total_commodity:
-            return self.get_current_state(), -total_travel_time + 1, True
+            return self.get_current_state(), -total_travel_time + 10, True
         else:
             return self.get_current_state(), -total_travel_time, False
             
@@ -190,8 +191,7 @@ class NetworkFlow:
             (a, b) = shortest_path[n], shortest_path[n + 1]
             shortest_path_travel_time += self.G.edges[(a,b)]['originalTime']
         for i in self.G.edges:
-            # self.G.edges[i]['time'] = self.G.edges[i]['originalTime'] / float(shortest_path_travel_time)
-            self.G.edges[i]['time'] = 1
+            self.G.edges[i]['time'] = self.G.edges[i]['originalTime'] / float(shortest_path_travel_time)
             (a, b) = i
         self.edge_data = torch.FloatTensor([self.G.edges[i,j]['time'] for i,j in self.edges]).unsqueeze(1)
 

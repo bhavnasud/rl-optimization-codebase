@@ -42,37 +42,22 @@ for i_episode in epochs:
     while not done and step < MAX_STEPS_TRAINING:
         obs = env.get_current_state()
         cur_region = np.argmax(obs.x[:, 0]).item()
-        action_rl = model.select_action(obs)
-        
-        # convert from Dirichlet distribution to integer distribution
-        # TODO: switch from just choosing max probability region to rounding distribution
-        max_region = np.argmax(action_rl)
-        desired_commodity_distribution = {
-            env.region[i]: 1 if i == max_region else 0
-            for i in range(len(env.region))
-        }
-        # desired_commodity_distribution = {
-        #     env.region[i]: round(
-        #         action_rl[i] * env.total_commodity
-        #     )
-        #     for i in range(len(env.region))
-        # }
+        action_rl = model.select_action(obs) # desired commodity distribution
+        print("cur region ", cur_region, " action_rl ", action_rl)
         # select action based on action_rl
         # TODO: switch to using optimizer rather than hardcoding action selection
-        action = []
-        self_edge_index = -1
-        for edge_index, edge in enumerate(env.edges):
+        action = {}
+        highest_node_prob = 0
+        selected_edge_index = -1
+        for n, edge in enumerate(env.edges):
             (i,j) = edge
-            if i == cur_region and j == cur_region:
-                self_edge_index = edge_index
-
-            if j == max_region and i == cur_region:
-                action.append(1)
-            else:
-                action.append(0)
-        # if it is not possible to get from i to j, default to taking a self edge
-        if (cur_region, max_region) not in env.G.edges:
-            action[self_edge_index] += 1
+            # only consider adjacent nodes
+            if i == cur_region:
+                if action_rl[j] > highest_node_prob:
+                    highest_node_prob = action_rl[j]
+                    selected_edge_index = n
+        action[env.edges[selected_edge_index]] = 1
+        print("action ", action)
 
         # action = solveRebFlow(
         #     env,
@@ -112,21 +97,18 @@ for i_episode in epochs:
                 obs = env.get_current_state()
                 cur_region = np.argmax(obs.x[:, 0])
                 action_rl = model.select_action(obs, deterministic=True)
-                max_region = np.argmax(action_rl)
-                desired_commodity_distribution = {
-                    env.region[i]: 1 if i == max_region else 0
-                    for i in range(len(env.region))
-                }
-                action = []
-                for edge in env.edges:
+                action = {}
+                highest_node_prob = 0
+                selected_edge_index = -1
+                for n, edge in enumerate(env.edges):
                     (i,j) = edge
-                    if j == max_region and i == cur_region:
-                        action.append(1)
-                    else:
-                        action.append(0)
-                # if it is not possible to get from i to j, default to taking a self edge
-                if (cur_region, max_region) not in env.G.edges:
-                    action[self_edge_index] += 1
+                    # only consider adjacent nodes
+                    if i == cur_region:
+                        if action_rl[j] > highest_node_prob:
+                            highest_node_prob = action_rl[j]
+                            selected_edge_index = n
+                action[env.edges[selected_edge_index]] = 1
+                print("action ", action)
                 # Take action in environment
                 next_state, reward, done = env.step(action)
                 episode_reward += reward
