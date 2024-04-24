@@ -35,11 +35,11 @@ class GNNActor(nn.Module):
     """
     def __init__(self, in_channels, out_channels):
         super().__init__()
-        
+
         self.conv1 = GCNConv(in_channels, in_channels)
-        self.lin1 = nn.Linear(in_channels, 8)
-        self.lin2 = nn.Linear(8, 8)
-        self.lin3 = nn.Linear(8, 1)
+        self.lin1 = nn.Linear(in_channels, 32)
+        self.lin2 = nn.Linear(32, 32)
+        self.lin3 = nn.Linear(32, 1)
     
     def forward(self, data):
         out = F.leaky_relu(self.conv1(data.x, data.edge_index, edge_weight=data.edge_attr))
@@ -62,9 +62,9 @@ class GNNCritic(nn.Module):
         super().__init__()
         
         self.conv1 = GCNConv(in_channels, in_channels)
-        self.lin1 = nn.Linear(in_channels, 8)
-        self.lin2 = nn.Linear(8, 8)
-        self.lin3 = nn.Linear(8, 1)
+        self.lin1 = nn.Linear(in_channels, 32)
+        self.lin2 = nn.Linear(32, 32)
+        self.lin3 = nn.Linear(32, 1)
     
     def forward(self, data):
         out = F.leaky_relu(self.conv1(data.x, data.edge_index, edge_weight=data.edge_attr))
@@ -120,6 +120,7 @@ class A2C(nn.Module):
     
     def select_action(self, obs, deterministic=False):
         concentration, value = self.forward(obs, jitter = 0 if deterministic else 1e-20)
+        print("concentration ", concentration)
         if deterministic:
             action = (concentration) / (concentration.sum())
             return list(action.cpu().numpy())
@@ -141,17 +142,15 @@ class A2C(nn.Module):
             # calculate the discounted value
             R = r + args.gamma * R
             returns.insert(0, R)
-
-        returns = torch.tensor(returns)
-        if (len(returns) == 1):
-            std_dev = 0
-        else:
-            std_dev = returns.std()
-        returns = (returns - returns.mean()) / (std_dev + self.eps)
+        # if (len(returns) == 1):
+        #     std_dev = 0
+        # else:
+        #     std_dev = returns.std()
+        # returns = (returns - returns.mean()) / (std_dev + self.eps)
 
         for (log_prob, value), R in zip(saved_actions, returns):
             advantage = R - value.item()
-
+            print("log prob ", log_prob, "R ", R, " value ", value)
             # calculate actor (policy) loss 
             policy_losses.append(-log_prob * advantage)
 

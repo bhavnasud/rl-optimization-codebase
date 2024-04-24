@@ -12,11 +12,11 @@ from torch.utils.tensorboard import SummaryWriter
 
 NUM_EPOCHS = 10000000
 CPLEX_PATH = "/Applications/CPLEX_Studio2211/opl/bin/arm64_osx/"
-MAX_STEPS_TRAINING = 100
+MAX_STEPS_TRAINING = 10
 MAX_STEPS_VALIDATION = 10
 
 
-random.seed(100)
+random.seed(120)
 env = NetworkFlow()
 
 writer = SummaryWriter()
@@ -30,7 +30,6 @@ epochs = trange(NUM_EPOCHS)
 for i_episode in epochs:
     model.train() #set model in train mode
     obs = env.reset()  # initialize environment
-    print("start node ", env.start_node, " goal node ", env.goal_node)
     episode_reward = 0
 
     done = False
@@ -39,7 +38,7 @@ for i_episode in epochs:
 
     log_probs = []
     rewards = []
-    while not done and step < MAX_STEPS_TRAINING:
+    while not done:
         obs = env.get_current_state()
         cur_region = np.argmax(obs.x[:, 0]).item()
         action_rl = model.select_action(obs) # desired commodity distribution
@@ -69,7 +68,8 @@ for i_episode in epochs:
         # )
 
         # Take action in environment
-        next_state, reward, done = env.step(action)
+        next_state, reward, done = env.step(action, step, max_steps=MAX_STEPS_TRAINING)
+        print("reward ", reward)
         episode_reward += reward
         rewards.append(reward)
         model.rewards.append(reward)
@@ -93,10 +93,11 @@ for i_episode in epochs:
             done = False
             step = 0
             prev_obs = None
-            while not done and step < MAX_STEPS_VALIDATION:
+            while not done:
                 obs = env.get_current_state()
                 cur_region = np.argmax(obs.x[:, 0])
                 action_rl = model.select_action(obs, deterministic=True)
+                print("action_rl ", action_rl)
                 action = {}
                 highest_node_prob = 0
                 selected_edge_index = -1
@@ -110,7 +111,7 @@ for i_episode in epochs:
                 action[env.edges[selected_edge_index]] = 1
                 print("action ", action)
                 # Take action in environment
-                next_state, reward, done = env.step(action)
+                next_state, reward, done = env.step(action, step, max_steps=MAX_STEPS_VALIDATION)
                 episode_reward += reward
                 step += 1      
             print("validation reward ", episode_reward)

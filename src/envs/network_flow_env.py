@@ -125,7 +125,7 @@ class NetworkFlow:
         node_data = torch.hstack([node_data, self.goal_node_feature[:, None]])
         return Data(node_data, self.edge_index, self.edge_data)
 
-    def step(self, flows):
+    def step(self, flows, step, max_steps):
         """
         Params:
             flows is a map from edge to edge flows
@@ -159,6 +159,8 @@ class NetworkFlow:
         # return next state, reward, trajectory complete boolean
         if self.acc[self.goal_node][self.time] == self.total_commodity:
             return self.get_current_state(), -total_travel_time + 10, True
+        elif step == max_steps:
+            return self.get_current_state(), -total_travel_time - 10, True
         else:
             return self.get_current_state(), -total_travel_time, False
             
@@ -172,26 +174,23 @@ class NetworkFlow:
             self.start_node, self.goal_node = 0, self.nregion - 1
         else:
             self.start_node, self.goal_node = np.random.choice(self.region, 2, replace=False)
+        print("start node ", self.start_node, " goal node ", self.goal_node)
         self.goal_node_feature = torch.IntTensor([1 if i == self.goal_node else 0 for i in range(self.nregion)])
         for n in self.region:
             self.acc[n][0] = self.total_commodity if n == self.start_node else 0
-        # for i in self.G.edges:
-        #     (a, b) = i
-        #     # self edges will always have travel time 1
-        #     if a == b:
-        #         self.G.edges[i]['originalTime'] = 1
-        #     # all other edges have random travel time between 1 and 5
-        #     else:
-        #         self.G.edges[i]['originalTime'] = random.randint(1,5)
-        
         # normalize travel times by travel time of shortest path
         shortest_path = nx.shortest_path(self.G, source=self.start_node, target=self.goal_node, weight='originalTime')
+        print("shortest path ", shortest_path)
         shortest_path_travel_time = 0
         for n in range(len(shortest_path) - 1):
             (a, b) = shortest_path[n], shortest_path[n + 1]
             shortest_path_travel_time += self.G.edges[(a,b)]['originalTime']
+
         for i in self.G.edges:
             self.G.edges[i]['time'] = self.G.edges[i]['originalTime'] / float(shortest_path_travel_time)
             (a, b) = i
+        for n in range(len(shortest_path) - 1):
+            (a, b) = shortest_path[n], shortest_path[n + 1]
+            print(f"shortest path leg {n} travel time is {self.G.edges[(a,b)]['time']}")
         self.edge_data = torch.FloatTensor([self.G.edges[i,j]['time'] for i,j in self.edges]).unsqueeze(1)
 
