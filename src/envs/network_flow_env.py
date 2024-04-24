@@ -81,8 +81,8 @@ def generate_connected_graph(num_nodes):
     G.add_edges_from(edges)
 
     pos = nx.spring_layout(G)
-    nx.draw(G, pos, with_labels=True)
-    plt.show()
+    # nx.draw(G, pos, with_labels=True)
+    # plt.show()
     return G, start_node, goal_node
 
 class NetworkFlow:
@@ -107,6 +107,19 @@ class NetworkFlow:
             # all other edges have random travel time between 1 and 5
             else:
                 self.G.edges[i]['originalTime'] = random.randint(1,5)
+        # shortest_path = nx.shortest_path(self.G, source=0, target=7, weight='originalTime')
+        # print("shortest path ", shortest_path)
+        # shortest_path_travel_time = 0
+        # for n in range(len(shortest_path) - 1):
+        #     (a, b) = shortest_path[n], shortest_path[n + 1]
+        #     shortest_path_travel_time += self.G.edges[(a,b)]['originalTime']
+        # for i in self.G.edges:
+        #     self.G.edges[i]['time'] = self.G.edges[i]['originalTime'] / float(shortest_path_travel_time)
+        #     (a, b) = i
+        #     print("setting travel time for edge ", (a, b), " to ", self.G.edges[i]['time'])
+        #     # (a, b) = i
+        nx.draw(self.G, with_labels=True)
+        plt.show()
         self.reset()
 
     def get_edge_index(self):
@@ -156,6 +169,9 @@ class NetworkFlow:
         for n in self.region:
             assert self.acc[n][self.time + 1] >= 0
         self.time += 1
+        # TODO: add terminate early check
+        # if terminate_early:
+        #     return self.get_current_state(), -100, True
         # return next state, reward, trajectory complete boolean
         if self.acc[self.goal_node][self.time] == self.total_commodity:
             return self.get_current_state(), -total_travel_time + 10, True
@@ -186,6 +202,7 @@ class NetworkFlow:
         
         # normalize travel times by travel time of shortest path
         shortest_path = nx.shortest_path(self.G, source=self.start_node, target=self.goal_node, weight='originalTime')
+        print("shortest path ", shortest_path)
         shortest_path_travel_time = 0
         for n in range(len(shortest_path) - 1):
             (a, b) = shortest_path[n], shortest_path[n + 1]
@@ -193,5 +210,7 @@ class NetworkFlow:
         for i in self.G.edges:
             self.G.edges[i]['time'] = self.G.edges[i]['originalTime'] / float(shortest_path_travel_time)
             (a, b) = i
+            print("setting travel time for edge ", (a, b), " to ", self.G.edges[i]['time'])
+            # (a, b) = i
         self.edge_data = torch.FloatTensor([self.G.edges[i,j]['time'] for i,j in self.edges]).unsqueeze(1)
 

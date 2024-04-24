@@ -3,7 +3,8 @@ from tqdm import trange
 import numpy as np
 import torch
 from src.envs.network_flow_env import NetworkFlow
-from src.algos.a2c_gnn import A2C
+# from src.algos.a2c_gnn import A2C
+from src.algos.a2c_mpnn import A2C, Actor, Critic
 from src.algos.reb_flow_solver import solveRebFlow
 from torch_geometric.data import Data
 import torch.optim as optim
@@ -16,7 +17,8 @@ MAX_STEPS_TRAINING = 100
 MAX_STEPS_VALIDATION = 10
 
 
-random.seed(100)
+# random.seed(100)
+random.seed(120)
 env = NetworkFlow()
 
 writer = SummaryWriter()
@@ -24,7 +26,10 @@ writer = SummaryWriter()
 
 device = torch.device("cuda") if torch.cuda.is_available() else "cpu"
 
-model = A2C(env=env, input_size=2).to(device)
+actor = Actor(node_size=2, edge_size=1, hidden_dim=64, out_channels=1)
+critic = Critic(node_size=2, edge_size=1, hidden_dim=64, out_channels=1)
+model = A2C(env, actor, critic)
+# model = A2C(env=env, input_size=2).to(device)
 
 epochs = trange(NUM_EPOCHS)
 for i_episode in epochs:
@@ -37,13 +42,12 @@ for i_episode in epochs:
     step = 0
     prev_obs = None
 
-    log_probs = []
-    rewards = []
     while not done and step < MAX_STEPS_TRAINING:
         obs = env.get_current_state()
         cur_region = np.argmax(obs.x[:, 0]).item()
         action_rl = model.select_action(obs) # desired commodity distribution
-        print("cur region ", cur_region, " action_rl ", action_rl)
+        print("action rl ", action_rl)
+        # print("cur region ", cur_region, " action_rl ", action_rl)
         # select action based on action_rl
         # TODO: switch to using optimizer rather than hardcoding action selection
         action = {}
@@ -71,10 +75,11 @@ for i_episode in epochs:
         # Take action in environment
         next_state, reward, done = env.step(action)
         episode_reward += reward
-        rewards.append(reward)
+        print("appending reward ", reward)
         model.rewards.append(reward)
         step += 1
     
+    print("before training step")
     # perform on-policy backprop
     model.training_step()
 
@@ -97,6 +102,7 @@ for i_episode in epochs:
                 obs = env.get_current_state()
                 cur_region = np.argmax(obs.x[:, 0])
                 action_rl = model.select_action(obs, deterministic=True)
+                print("cur region ", cur_region, " action_rl ", action_rl)
                 action = {}
                 highest_node_prob = 0
                 selected_edge_index = -1
