@@ -142,11 +142,11 @@ class A2C(nn.Module):
             # calculate the discounted value
             R = r + args.gamma * R
             returns.insert(0, R)
-        # if (len(returns) == 1):
-        #     std_dev = 0
-        # else:
-        #     std_dev = returns.std()
-        # returns = (returns - returns.mean()) / (std_dev + self.eps)
+        if (len(returns) == 1):
+            std_dev = 0
+        else:
+            std_dev = returns.std()
+        returns = (returns - returns.mean()) / (std_dev + self.eps)
 
         for (log_prob, value), R in zip(saved_actions, returns):
             advantage = R - value.item()
