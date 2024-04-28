@@ -34,7 +34,7 @@ model = A2C(env=env, actor=actor, critic=critic)
 epochs = trange(NUM_EPOCHS)
 for i_episode in epochs:
     model.train() #set model in train mode
-    obs = env.reset(start_to_end_test=True)  # initialize environment
+    obs = env.reset()  # initialize environment
     episode_reward = 0
 
     done = False

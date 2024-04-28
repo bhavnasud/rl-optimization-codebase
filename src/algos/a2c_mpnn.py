@@ -131,14 +131,15 @@ class A2C(nn.Module):
         # actor: computes concentration parameters of a X distribution
         # print("edge attr is ", graph.edge_attr)
         a_probs = self.actor(graph.x, graph.edge_index, graph.edge_attr)
-        concentration = F.softplus(a_probs).reshape(-1) + jitter
+        concentration = F.softplus(a_probs).reshape(-1)
+        concentration += torch.rand(concentration.shape) * jitter
 
         # critic: estimates V(s_t)
         value = self.critic(graph.x, graph.edge_index, graph.edge_attr)
         return concentration, value
     
     def select_action(self, obs, deterministic=False):
-        concentration , value = self.forward(obs, jitter=0 if deterministic else 1e-20)
+        concentration , value = self.forward(obs, jitter=0 if deterministic else 1e-1)
         print("concentration ", concentration)
         if deterministic:
             action = (concentration) / (concentration.sum())
@@ -146,12 +147,12 @@ class A2C(nn.Module):
         else:   
             dirichlet = Dirichlet(concentration)
             action = dirichlet.sample()
-            action += torch.rand(action.shape) * 1e-20
+            # action += torch.rand(action.shape) * 1e-20
             print("sampled action ", action, " from concnetration ", concentration)
             dir_log_prob = dirichlet.log_prob(action)
             print("Log prob is ", dir_log_prob)
-            if dir_log_prob < 0:
-                quit()
+            # if dir_log_prob < 0:
+            #     quit()
             self.saved_actions.append(SavedAction(dir_log_prob, value))
             return list(action.cpu().numpy())
 
@@ -179,11 +180,11 @@ class A2C(nn.Module):
             advantage = R - value.item()
             print("log prob ", log_prob, "R ", R, " value ", value)
             # calculate actor (policy) loss 
-            # policy_losses.append(-log_prob * advantage)
-            policy_losses.append(-log_prob * R)
+            policy_losses.append(-log_prob * advantage)
+            # policy_losses.append(-log_prob * R)
 
             # calculate critic (value) loss using L1 smooth loss
-            # value_losses.append(F.smooth_l1_loss(value, torch.tensor([R]).to(self.device)))
+            value_losses.append(F.smooth_l1_loss(value, torch.tensor([R]).to(self.device)))
         
         # take gradient steps
         self.optimizers['a_optimizer'].zero_grad()
@@ -195,11 +196,11 @@ class A2C(nn.Module):
         a_loss.backward()
         self.optimizers['a_optimizer'].step()
         
-        # self.optimizers['c_optimizer'].zero_grad()
-        # v_loss = torch.stack(value_losses).sum()
-        # # a_loss = v_loss + entropy_loss
-        # v_loss.backward()
-        # self.optimizers['c_optimizer'].step()
+        self.optimizers['c_optimizer'].zero_grad()
+        v_loss = torch.stack(value_losses).sum()
+        # a_loss = v_loss + entropy_loss
+        v_loss.backward()
+        self.optimizers['c_optimizer'].step()
 
         if i_episode % 100 == 0:
             tensorboard_writer.add_scalar("Policy loss", a_loss, i_episode)
