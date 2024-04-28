@@ -4,6 +4,7 @@ import numpy as np
 import torch
 from src.envs.network_flow_env import NetworkFlow
 from src.algos.a2c_gnn import A2C
+from src.algos.a2c_mpnn import Actor, Critic, A2C
 from src.algos.reb_flow_solver import solveRebFlow
 from torch_geometric.data import Data
 import torch.optim as optim
@@ -16,7 +17,7 @@ MAX_STEPS_TRAINING = 10
 MAX_STEPS_VALIDATION = 10
 
 
-random.seed(120)
+random.seed(95)
 env = NetworkFlow()
 
 writer = SummaryWriter()
@@ -24,12 +25,16 @@ writer = SummaryWriter()
 
 device = torch.device("cuda") if torch.cuda.is_available() else "cpu"
 
-model = A2C(env=env, input_size=2).to(device)
+
+actor = Actor(2, 1, 8, 1)
+critic = Critic(2, 1, 8, 1)
+model = A2C(env=env, actor=actor, critic=critic)
+# model = A2C(env=env, input_size=2).to(device)
 
 epochs = trange(NUM_EPOCHS)
 for i_episode in epochs:
     model.train() #set model in train mode
-    obs = env.reset()  # initialize environment
+    obs = env.reset(start_to_end_test=True)  # initialize environment
     episode_reward = 0
 
     done = False
@@ -76,7 +81,7 @@ for i_episode in epochs:
         step += 1
     
     # perform on-policy backprop
-    model.training_step()
+    model.training_step(tensorboard_writer=writer, i_episode=i_episode)
 
     print("episode ", i_episode + 1, "reward ", episode_reward)
     if i_episode % 100 == 0:

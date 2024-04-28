@@ -142,6 +142,8 @@ class A2C(nn.Module):
             # calculate the discounted value
             R = r + args.gamma * R
             returns.insert(0, R)
+
+        returns = torch.tensor(returns)
         if (len(returns) == 1):
             std_dev = 0
         else:
@@ -156,15 +158,18 @@ class A2C(nn.Module):
 
             # calculate critic (value) loss using L1 smooth loss
             value_losses.append(F.smooth_l1_loss(value, torch.tensor([R]).to(self.device)))
-
+        
         # take gradient steps
         self.optimizers['a_optimizer'].zero_grad()
         a_loss = torch.stack(policy_losses).sum()
+        # entropy_loss = torch.mean(-0.2 * torch.tensor(saved_actions))
+        # a_loss = a_loss + entropy_loss
         a_loss.backward()
         self.optimizers['a_optimizer'].step()
         
         self.optimizers['c_optimizer'].zero_grad()
         v_loss = torch.stack(value_losses).sum()
+        # a_loss = v_loss + entropy_loss
         v_loss.backward()
         self.optimizers['c_optimizer'].step()
         

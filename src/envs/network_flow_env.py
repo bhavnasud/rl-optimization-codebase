@@ -99,14 +99,14 @@ class NetworkFlow:
         
         self.time = 0  # current time
         self.acc = defaultdict(dict)
-        for i in self.G.edges:
-            (a, b) = i
-            # self edges will always have travel time 1
-            if a == b:
-                self.G.edges[i]['originalTime'] = 1
-            # all other edges have random travel time between 1 and 5
-            else:
-                self.G.edges[i]['originalTime'] = random.randint(1,5)
+        # for i in self.G.edges:
+        #     (a, b) = i
+        #     # self edges will always have travel time 1
+        #     if a == b:
+        #         self.G.edges[i]['originalTime'] = 1
+        #     # all other edges have random travel time between 1 and 5
+        #     else:
+        #         self.G.edges[i]['originalTime'] = random.randint(1,5)
         self.reset()
 
     def get_edge_index(self):
@@ -158,9 +158,11 @@ class NetworkFlow:
         self.time += 1
         # return next state, reward, trajectory complete boolean
         if self.acc[self.goal_node][self.time] == self.total_commodity:
-            return self.get_current_state(), -total_travel_time + 10, True
+            # return self.get_current_state(), -total_travel_time + 10, True
+            return self.get_current_state(), -total_travel_time + 1, True
         elif step == max_steps:
-            return self.get_current_state(), -total_travel_time - 10, True
+            # return self.get_current_state(), -total_travel_time - 10, True
+            return self.get_current_state(), -total_travel_time - 1, True
         else:
             return self.get_current_state(), -total_travel_time, False
             
@@ -174,6 +176,17 @@ class NetworkFlow:
             self.start_node, self.goal_node = 0, self.nregion - 1
         else:
             self.start_node, self.goal_node = np.random.choice(self.region, 2, replace=False)
+
+        for i in self.G.edges:
+            (a, b) = i
+            # self edges will always have travel time 1
+            if a == b:
+                self.G.edges[i]['originalTime'] = 1
+            # all other edges have random travel time between 1 and 5
+            else:
+                self.G.edges[i]['originalTime'] = random.randint(1,5)
+        # TODO: make sure we never choose start and goal node next to each other
+        # TODO: have start and goal node be fixed
         print("start node ", self.start_node, " goal node ", self.goal_node)
         self.goal_node_feature = torch.IntTensor([1 if i == self.goal_node else 0 for i in range(self.nregion)])
         for n in self.region:
