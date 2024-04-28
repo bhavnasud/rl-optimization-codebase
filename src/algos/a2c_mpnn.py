@@ -139,7 +139,7 @@ class A2C(nn.Module):
         return concentration, value
     
     def select_action(self, obs, deterministic=False):
-        concentration , value = self.forward(obs, jitter=0 if deterministic else 1e-1)
+        concentration , value = self.forward(obs, jitter=0 if deterministic else 1e-20)
         print("concentration ", concentration)
         if deterministic:
             action = (concentration) / (concentration.sum())
@@ -169,12 +169,14 @@ class A2C(nn.Module):
             R = r + args.gamma * R
             returns.insert(0, R)
 
-        # returns = torch.tensor(returns)
-        # if (len(returns) == 1):
-        #     std_dev = 0
-        # else:
-        #     std_dev = returns.std()
-        # returns = (returns - returns.mean()) / (std_dev + self.eps)
+
+        # TODO: try normalizing reward again to see if that helps with stability
+        returns = torch.tensor(returns)
+        if (len(returns) == 1):
+            std_dev = 0
+        else:
+            std_dev = returns.std()
+        returns = (returns - returns.mean()) / (std_dev + self.eps)
 
         for (log_prob, value), R in zip(saved_actions, returns):
             advantage = R - value.item()
@@ -191,8 +193,8 @@ class A2C(nn.Module):
         print("policy losses ", policy_losses)
         a_loss = torch.stack(policy_losses).sum()
         print("a loss ", a_loss)
-        # entropy_loss = torch.mean(-0.2 * torch.tensor(saved_actions))
-        # a_loss = a_loss + entropy_loss
+        entropy_loss = torch.mean(-0.2 * torch.abs(torch.tensor(saved_actions)))
+        a_loss = a_loss + entropy_loss
         a_loss.backward()
         self.optimizers['a_optimizer'].step()
         

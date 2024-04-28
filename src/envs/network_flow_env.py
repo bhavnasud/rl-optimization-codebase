@@ -172,10 +172,6 @@ class NetworkFlow:
         # all commodity starts at start node
         self.time = 0  # current time
         self.acc = defaultdict(dict) # maps nodes to time to amount of commodity at that node at that time
-        if start_to_end_test:
-            self.start_node, self.goal_node = 0, self.nregion - 1
-        else:
-            self.start_node, self.goal_node = np.random.choice(self.region, 2, replace=False)
 
         for i in self.G.edges:
             (a, b) = i
@@ -185,15 +181,21 @@ class NetworkFlow:
             # all other edges have random travel time between 1 and 5
             else:
                 self.G.edges[i]['originalTime'] = random.randint(1,5)
-        # TODO: make sure we never choose start and goal node next to each other
-        # TODO: have start and goal node be fixed
-        print("start node ", self.start_node, " goal node ", self.goal_node)
+        if start_to_end_test:
+            self.start_node, self.goal_node = 0, self.nregion - 1
+        else:
+            shortest_path_length = -1
+            # make sure we never choose start and goal node next to each other
+            while shortest_path_length < 3:
+                self.start_node, self.goal_node = np.random.choice(self.region, 2, replace=False)
+                shortest_path = nx.shortest_path(self.G, source=self.start_node, target=self.goal_node, weight='originalTime')
+                shortest_path_length = len(shortest_path)
         self.goal_node_feature = torch.IntTensor([1 if i == self.goal_node else 0 for i in range(self.nregion)])
         for n in self.region:
             self.acc[n][0] = self.total_commodity if n == self.start_node else 0
-        # normalize travel times by travel time of shortest path
         shortest_path = nx.shortest_path(self.G, source=self.start_node, target=self.goal_node, weight='originalTime')
         print("shortest path ", shortest_path)
+        # normalize travel times by travel time of shortest path
         shortest_path_travel_time = 0
         for n in range(len(shortest_path) - 1):
             (a, b) = shortest_path[n], shortest_path[n + 1]
