@@ -194,7 +194,7 @@ class NetworkFlow:
         for n in self.region:
             self.acc[n][0] = self.total_commodity if n == self.start_node else 0
         shortest_path = nx.shortest_path(self.G, source=self.start_node, target=self.goal_node, weight='originalTime')
-        print("shortest path ", shortest_path)
+        # print("shortest path ", shortest_path)
         # normalize travel times by travel time of shortest path
         shortest_path_travel_time = 0
         for n in range(len(shortest_path) - 1):
@@ -206,6 +206,6 @@ class NetworkFlow:
             (a, b) = i
         for n in range(len(shortest_path) - 1):
             (a, b) = shortest_path[n], shortest_path[n + 1]
-            print(f"shortest path leg {n} travel time is {self.G.edges[(a,b)]['time']}")
+            # print(f"shortest path leg {n} travel time is {self.G.edges[(a,b)]['time']}")
         self.edge_data = torch.FloatTensor([self.G.edges[i,j]['time'] for i,j in self.edges]).unsqueeze(1)
 

@@ -148,9 +148,9 @@ class A2C(nn.Module):
             dirichlet = Dirichlet(concentration)
             action = dirichlet.sample()
             # action += torch.rand(action.shape) * 1e-20
-            print("sampled action ", action, " from concnetration ", concentration)
+            print("sampled action ", action)
             dir_log_prob = dirichlet.log_prob(action)
-            print("Log prob is ", dir_log_prob)
+            # print("Log prob is ", dir_log_prob)
             # if dir_log_prob < 0:
             #     quit()
             self.saved_actions.append(SavedAction(dir_log_prob, value))
@@ -180,21 +180,21 @@ class A2C(nn.Module):
 
         for (log_prob, value), R in zip(saved_actions, returns):
             advantage = R - value.item()
-            print("log prob ", log_prob, "R ", R, " value ", value)
+            # print("log prob ", log_prob, "R ", R, " value ", value)
             # calculate actor (policy) loss 
             policy_losses.append(-log_prob * advantage)
             # policy_losses.append(-log_prob * R)
 
             # calculate critic (value) loss using L1 smooth loss
-            value_losses.append(F.smooth_l1_loss(value, torch.tensor([R]).to(self.device)))
+            value_losses.append(F.mse_loss(value, torch.tensor([R]).to(self.device)))
         
         # take gradient steps
         self.optimizers['a_optimizer'].zero_grad()
-        print("policy losses ", policy_losses)
-        a_loss = torch.stack(policy_losses).sum()
-        print("a loss ", a_loss)
-        entropy_loss = torch.mean(-0.2 * torch.abs(torch.tensor(saved_actions)))
-        a_loss = a_loss + entropy_loss
+        # print("policy losses ", policy_losses)
+        a_loss_original = torch.stack(policy_losses).sum()
+        # print("a loss ", a_loss)
+        entropy_loss = torch.mean(0.01 * torch.abs(torch.tensor(saved_actions)))
+        a_loss = a_loss_original + entropy_loss
         a_loss.backward()
         self.optimizers['a_optimizer'].step()
         
@@ -204,9 +204,14 @@ class A2C(nn.Module):
         v_loss.backward()
         self.optimizers['c_optimizer'].step()
 
+        average_log_prob = torch.tensor(saved_actions).mean()
+        print("log probs ", saved_actions)
         if i_episode % 100 == 0:
             tensorboard_writer.add_scalar("Policy loss", a_loss, i_episode)
-            # tensorboard_writer.add_scalar("Critic loss", v_loss, i_episode)
+            tensorboard_writer.add_scalar("Critic loss", v_loss, i_episode)
+            tensorboard_writer.add_scalar("Entropy loss", entropy_loss, i_episode)
+            tensorboard_writer.add_scalar("Policy loss without entropy", a_loss_original, i_episode)
+            tensorboard_writer.add_scalar("Average log prob", average_log_prob, i_episode)
         
         # reset rewards and action buffer
         del self.rewards[:]
@@ -216,8 +221,9 @@ class A2C(nn.Module):
         optimizers = dict()
         actor_params = list(self.actor.parameters())
         critic_params = list(self.critic.parameters())
-        optimizers['a_optimizer'] = torch.optim.Adam(actor_params, lr=1e-3)
-        optimizers['c_optimizer'] = torch.optim.Adam(critic_params, lr=1e-3)
+        # TODO: try lowering learning rate
+        optimizers['a_optimizer'] = torch.optim.Adam(actor_params, lr=1e-4)
+        optimizers['c_optimizer'] = torch.optim.Adam(critic_params, lr=1e-4)
         return optimizers
     
     def save_checkpoint(self, path='ckpt.pth'):

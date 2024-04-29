@@ -17,7 +17,7 @@ MAX_STEPS_TRAINING = 10
 MAX_STEPS_VALIDATION = 10
 
 
-random.seed(95)
+random.seed(87)
 env = NetworkFlow()
 
 writer = SummaryWriter()
@@ -47,7 +47,7 @@ for i_episode in epochs:
         obs = env.get_current_state()
         cur_region = np.argmax(obs.x[:, 0]).item()
         action_rl = model.select_action(obs) # desired commodity distribution
-        print("cur region ", cur_region, " action_rl ", action_rl)
+        # print("cur region ", cur_region, " action_rl ", action_rl)
         # select action based on action_rl
         # TODO: switch to using optimizer rather than hardcoding action selection
         action = {}
@@ -61,7 +61,7 @@ for i_episode in epochs:
                     highest_node_prob = action_rl[j]
                     selected_edge_index = n
         action[env.edges[selected_edge_index]] = 1
-        print("action ", action)
+        # print("action ", action)
 
         # action = solveRebFlow(
         #     env,
@@ -74,7 +74,7 @@ for i_episode in epochs:
 
         # Take action in environment
         next_state, reward, done = env.step(action, step, max_steps=MAX_STEPS_TRAINING)
-        print("reward ", reward)
+        # print("reward ", reward)
         episode_reward += reward
         rewards.append(reward)
         model.rewards.append(reward)
@@ -102,7 +102,7 @@ for i_episode in epochs:
                 obs = env.get_current_state()
                 cur_region = np.argmax(obs.x[:, 0])
                 action_rl = model.select_action(obs, deterministic=True)
-                print("action_rl ", action_rl)
+                # print("action_rl ", action_rl)
                 action = {}
                 highest_node_prob = 0
                 selected_edge_index = -1
@@ -114,7 +114,7 @@ for i_episode in epochs:
                             highest_node_prob = action_rl[j]
                             selected_edge_index = n
                 action[env.edges[selected_edge_index]] = 1
-                print("action ", action)
+                # print("action ", action)
                 # Take action in environment
                 next_state, reward, done = env.step(action, step, max_steps=MAX_STEPS_VALIDATION)
                 episode_reward += reward
