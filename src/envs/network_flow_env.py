@@ -6,20 +6,12 @@ This file contains the specifications for the network flow simulator.
 from collections import defaultdict
 import torch
 import numpy as np
-import subprocess
-import os
 import networkx as nx
-from src.misc.utils import mat2str
-from copy import deepcopy
-import json
 import random
 from torch_geometric.data import Data
 import matplotlib.pyplot as plt
 
 
-# # Function to check if graph is connected
-# def is_connected(graph):
-#     return nx.is_connected(graph)
 
 # Function to generate a random connected graph that is not complete
 def generate_connected_graph(num_nodes):
@@ -80,8 +72,17 @@ def generate_connected_graph(num_nodes):
 
     G.add_edges_from(edges)
 
-    pos = nx.spring_layout(G)
-    nx.draw(G, pos, with_labels=True)
+    custom_pos = {
+        0: (0, 1),
+        1: (1, 0),
+        2: (1, 1),
+        3: (1, 2),
+        4: (2, 0),
+        5: (2, 1),
+        6: (2, 2),
+        7: (3, 1)
+    }
+    nx.draw(G, custom_pos, with_labels=True)
     plt.show()
     return G, start_node, goal_node
 
@@ -98,15 +99,7 @@ class NetworkFlow:
         self.nregion = len(self.G)
         
         self.time = 0  # current time
-        self.acc = defaultdict(dict)
-        # for i in self.G.edges:
-        #     (a, b) = i
-        #     # self edges will always have travel time 1
-        #     if a == b:
-        #         self.G.edges[i]['originalTime'] = 1
-        #     # all other edges have random travel time between 1 and 5
-        #     else:
-        #         self.G.edges[i]['originalTime'] = random.randint(1,5)
+        self.acc = defaultdict(dict) # commodities at each node at each timestep
         self.reset()
 
     def get_edge_index(self):
@@ -133,11 +126,12 @@ class NetworkFlow:
         Returns:
         next state (Data object)
         integer reward for that step
-            reward is -travel_time, plus 1 if all commodity reaches goal
+            reward is -travel_time,
+            plus 1 if all commodity reaches goal
+            or minus 1 if trajectory terminates early
         boolean indicating whether trajectory is over or not
             currently trajectory only ends when all commodity reaches goal
         """
-        self.reward = 0
         # copy commodity distribution from current time to next
         for n in self.region:
             self.acc[n][self.time + 1] = self.acc[n][self.time]
@@ -194,7 +188,6 @@ class NetworkFlow:
         for n in self.region:
             self.acc[n][0] = self.total_commodity if n == self.start_node else 0
         shortest_path = nx.shortest_path(self.G, source=self.start_node, target=self.goal_node, weight='originalTime')
-        # print("shortest path ", shortest_path)
         # normalize travel times by travel time of shortest path
         shortest_path_travel_time = 0
         for n in range(len(shortest_path) - 1):
@@ -206,6 +199,6 @@ class NetworkFlow:
             (a, b) = i
         for n in range(len(shortest_path) - 1):
             (a, b) = shortest_path[n], shortest_path[n + 1]
-            # print(f"shortest path leg {n} travel time is {self.G.edges[(a,b)]['time']}")
         self.edge_data = torch.FloatTensor([self.G.edges[i,j]['time'] for i,j in self.edges]).unsqueeze(1)
+        return shortest_path
 

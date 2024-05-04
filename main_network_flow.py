@@ -9,15 +9,21 @@ from src.algos.reb_flow_solver import solveRebFlow
 from torch_geometric.data import Data
 import torch.optim as optim
 import random
+import networkx as nx
+from matplotlib.lines import Line2D
+import matplotlib.pyplot as plt
 from torch.utils.tensorboard import SummaryWriter
 
-NUM_EPOCHS = 10000000
+NUM_EPOCHS = 1000000
 CPLEX_PATH = "/Applications/CPLEX_Studio2211/opl/bin/arm64_osx/"
 MAX_STEPS_TRAINING = 10
 MAX_STEPS_VALIDATION = 10
+# CHECKPOINT_PATH = "network_flow_checkpoints_saved/episode_443000.pth"
+CHECKPOINT_PATH = ""
+SAVE_CHECKPOINTS = False
+TRAIN = False
 
-
-random.seed(87)
+random.seed(104)
 env = NetworkFlow()
 
 writer = SummaryWriter()
@@ -29,7 +35,9 @@ device = torch.device("cuda") if torch.cuda.is_available() else "cpu"
 actor = Actor(2, 1, 8, 1)
 critic = Critic(2, 1, 8, 1)
 model = A2C(env=env, actor=actor, critic=critic)
-# model = A2C(env=env, input_size=2).to(device)
+
+if len(CHECKPOINT_PATH) > 0:
+    model.load_checkpoint(CHECKPOINT_PATH)
 
 epochs = trange(NUM_EPOCHS)
 for i_episode in epochs:
@@ -47,9 +55,7 @@ for i_episode in epochs:
         obs = env.get_current_state()
         cur_region = np.argmax(obs.x[:, 0]).item()
         action_rl = model.select_action(obs) # desired commodity distribution
-        # print("cur region ", cur_region, " action_rl ", action_rl)
         # select action based on action_rl
-        # TODO: switch to using optimizer rather than hardcoding action selection
         action = {}
         highest_node_prob = 0
         selected_edge_index = -1
@@ -61,48 +67,40 @@ for i_episode in epochs:
                     highest_node_prob = action_rl[j]
                     selected_edge_index = n
         action[env.edges[selected_edge_index]] = 1
-        # print("action ", action)
-
-        # action = solveRebFlow(
-        #     env,
-        #     "network_flow_reb",
-        #     desired_commodity_distribution,
-        #     CPLEX_PATH,
-        #     "saved_files",
-        #     use_current_time=True
-        # )
 
         # Take action in environment
         next_state, reward, done = env.step(action, step, max_steps=MAX_STEPS_TRAINING)
-        # print("reward ", reward)
         episode_reward += reward
         rewards.append(reward)
         model.rewards.append(reward)
         step += 1
     
-    # perform on-policy backprop
-    model.training_step(tensorboard_writer=writer, i_episode=i_episode)
+    if TRAIN:
+        # perform on-policy backprop
+        model.training_step(tensorboard_writer=writer, i_episode=i_episode)
 
-    print("episode ", i_episode + 1, "reward ", episode_reward)
-    if i_episode % 100 == 0:
-        writer.add_scalar("Training reward", episode_reward, i_episode)
+        if i_episode % 100 == 0:
+            writer.add_scalar("Training reward", episode_reward, i_episode)
+            if i_episode % 1000 == 0 and SAVE_CHECKPOINTS:
+                model.save_checkpoint(f"network_flow_checkpoints/episode_{i_episode}.pth")
 
-
+    # validation test with deterministic concentration and always from 0 to 7
     if i_episode % 10 == 0:
         model.eval()
-        print("RUNNING VALIDATION TEST")
         with torch.no_grad():
-            env.reset(start_to_end_test=True)  # initialize environment
+            true_shortest_path = env.reset(start_to_end_test=True)  # initialize environment
             episode_reward = 0
 
             done = False
             step = 0
             prev_obs = None
+            predicted_shortest_path = []
+            cur_region = -1
             while not done:
                 obs = env.get_current_state()
                 cur_region = np.argmax(obs.x[:, 0])
+                predicted_shortest_path.append(cur_region.item())
                 action_rl = model.select_action(obs, deterministic=True)
-                # print("action_rl ", action_rl)
                 action = {}
                 highest_node_prob = 0
                 selected_edge_index = -1
@@ -114,14 +112,47 @@ for i_episode in epochs:
                             highest_node_prob = action_rl[j]
                             selected_edge_index = n
                 action[env.edges[selected_edge_index]] = 1
-                # print("action ", action)
                 # Take action in environment
                 next_state, reward, done = env.step(action, step, max_steps=MAX_STEPS_VALIDATION)
                 episode_reward += reward
-                step += 1      
-            print("validation reward ", episode_reward)
+                step += 1 
+            cur_region = np.argmax(next_state.x[:, 0])
+            predicted_shortest_path.append(cur_region.item())    
+            custom_pos = {
+                0: (0, 1),
+                1: (1, 0),
+                2: (1, 1),
+                3: (1, 2),
+                4: (2, 0),
+                5: (2, 1),
+                6: (2, 2),
+                7: (3, 1)
+            }
             if i_episode % 100 == 0:
                 writer.add_scalar("Validation Reward", episode_reward, i_episode)
+            # Draw the graph
+            if i_episode % 100 == 0:
+                plt.clf()
+                nx.draw(env.G, custom_pos, with_labels=True, node_color='lightblue', node_size=1500, font_size=10, font_weight='bold')
+
+                # Highlight the true shortest path
+                nx.draw_networkx_edges(env.G, custom_pos, edgelist=list(zip(true_shortest_path[:-1], true_shortest_path[1:])), edge_color='green', width=3)
+
+                # Highlight the calculated shortest path
+                nx.draw_networkx_edges(env.G, custom_pos, edgelist=list(zip(predicted_shortest_path[:-1], predicted_shortest_path[1:])), edge_color='red', width=1)
+
+
+                legend_handles = [
+                    Line2D([0], [0], color='red', lw=2),
+                    Line2D([0], [0], color='green', lw=2)
+                ]
+                # Add a legend
+                plt.legend(legend_handles, ['Predicted Shortest Path', 'True Shortest Path'])
+                plt.text(2.2, 0, f'Difference in reward: {round(episode_reward, 2)}', ha='left', va='top')
+
+                # Show the plot
+                # plt.show(block=False)
+                plt.pause(1)
 
 writer.flush()
 
