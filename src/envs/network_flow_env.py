@@ -10,6 +10,10 @@ import networkx as nx
 import random
 from torch_geometric.data import Data
 import matplotlib.pyplot as plt
+import gymnasium as gym
+from gymnasium import spaces
+from torch_geometric.utils import to_dense_adj
+import torch.nn.functional as F
 
 
 
@@ -84,29 +88,83 @@ def generate_connected_graph(num_nodes):
     }
     nx.draw(G, custom_pos, with_labels=True)
     plt.show()
-    return G, start_node, goal_node
+    return G
 
-class NetworkFlow:
+
+# # Define a custom Gym observation space for the graph data
+# class GraphObservationSpace(gym.Space):
+#     def __init__(self):
+#         # Node feature space
+#         self.node_feature_space = spaces.Box(low=0, high=1, shape=(num_nodes, 2), dtype=np.float32)
+
+#         # Edge feature space
+#         self.edge_feature_space = spaces.Box(low=0, high=1, shape=(num_edges, 1), dtype=np.float32)
+
+#         # Edge index space
+#         self.edge_index_space = spaces.MultiDiscrete([8, 8])
+
+#         self._shape = {
+#             'node_features': self.node_feature_space.shape,
+#             'edge_features': self.edge_feature_space.shape,
+#             'edge_index': self.edge_index_space.shape
+#         }
+
+#         self.dtype = {
+#             'node_features': self.node_feature_space.dtype,
+#             'edge_features': self.edge_feature_space.dtype,
+#             'edge_index': self.edge_index_space.dtype
+#         }
+
+#     def sample(self):
+#         node_features = self.node_feature_space.sample()
+#         edge_features = self.edge_feature_space.sample()
+#         edge_index = self.edge_index_space.sample()
+#         return {'node_features': node_features, 'edge_features': edge_features, 'edge_index': edge_index}
+
+#     def contains(self, x):
+#         node_features = x.get('node_features')
+#         edge_features = x.get('edge_features')
+#         edge_index = x.get('edge_index')
+#         return self.node_feature_space.contains(node_features) and \
+#                self.edge_feature_space.contains(edge_features) and \
+#                self.edge_index_space.contains(edge_index)
+
+class NetworkFlowEnv(gym.Env):
     def __init__(
         self, num_nodes=10
     ):
         # Generate a connected graph that is not complete
-        self.G, self.start_node, self.goal_node = generate_connected_graph(num_nodes)
+        self.G = generate_connected_graph(num_nodes)
         self.region = list(self.G)  # set of nodes
         self.edges = list(self.G.edges)
         self.total_commodity = 1
         self.edge_index = self.get_edge_index()
         self.nregion = len(self.G)
+        self.start_to_end_test = False
         
         self.time = 0  # current time
         self.acc = defaultdict(dict) # commodities at each node at each timestep
-        self.reset()
+        # self.reset()
+        self.max_steps = 10
+        # action_space_dict = {edge: gym.spaces.Discrete(2) for edge in self.edges}
+        # self.action_space = gym.spaces.Dict(action_space_dict)
+        self.action_space = gym.spaces.Box(low=0, high=1, shape=(self.nregion, 1), dtype=np.float32)
+        # print("nregion ", self.nregion)
+        self.observation_space_dict = {
+            # TODO: change MultiBinary to Box
+            "node_features": gym.spaces.MultiBinary((self.nregion, 2)),
+            "edge_features": gym.spaces.Box(low=0, high=1, shape=(len(self.edges), 1), dtype=np.float32),
+            "edge_index": gym.spaces.Box(low=0, high=self.nregion, shape=(2, len(self.edges)), dtype=int)
+        }
+        self.observation_space = gym.spaces.Dict(self.observation_space_dict)
+
 
     def get_edge_index(self):
         edge_index = np.array(self.edges).T
-        edge_index_tensor = torch.LongTensor(edge_index)
-        return edge_index_tensor
+        return edge_index
 
+    def set_start_to_end_test(self, start_to_end_test):
+        self.start_to_end_test = start_to_end_test
 
     def get_current_state(self):
         # current state (input to RL policy) includes current
@@ -114,30 +172,63 @@ class NetworkFlow:
         # where the goal node is,
         # travel times, 
         # and graph layout (self.edge_index) 
-        node_data = torch.FloatTensor([self.acc[i][self.time] for i in range(len(self.G.nodes))]).unsqueeze(1)
+        node_data = torch.IntTensor([self.acc[i][self.time] for i in range(len(self.G.nodes))]).unsqueeze(1)
         node_data = torch.hstack([node_data, self.goal_node_feature[:, None]])
-        return Data(node_data, self.edge_index, self.edge_data)
+        # print("edge index dtype ", self.edge_index.dtype)
+        return_val = {
+            "node_features": node_data.numpy(),
+            "edge_features": self.edge_data.numpy(),
+            "edge_index": self.edge_index
+        }
+        # print("node features shape ", node_data.shape)
+        # print("edge features shape ", self.edge_data.flatten())
+        return return_val
 
-    def step(self, flows, step, max_steps):
+    def step(self, action):
         """
         Params:
-            flows is a map from edge to edge flows
-            only contains nonzero flows
+            action is action outputted by stable baselines RL policy
+            It is desired distribution of commodity (not normalized?)
         Returns:
-        next state (Data object)
+        next state (matches self.observation_space)
         integer reward for that step
             reward is -travel_time,
             plus 1 if all commodity reaches goal
             or minus 1 if trajectory terminates early
         boolean indicating whether trajectory is over or not
             currently trajectory only ends when all commodity reaches goal
+        boolean indicating whether trajectory was terminated early (happens after 10 steps)
+        metadata
         """
+        # select action based on action_rl
+        # TODO: figure out if action_rl is sampled from probability distribution? do I need to apply softplus to network output?
+        action_rl = action
+        highest_node_prob = 0
+        selected_edge_index = -1
+        cur_region = 0
+        for n in self.region:
+            if self.acc[n][self.time] == 1:
+                cur_region = n
+        # print("cur region is ", cur_region)
+        action_dict = {}
+        for n, edge in enumerate(self.edges):
+            (i,j) = edge
+            # only consider adjacent nodes
+            if i == cur_region:
+                # print("considering edge ", (i,j), " with prob ", action_rl[j])
+                if action_rl[j] > highest_node_prob:
+                    highest_node_prob = action_rl[j]
+                    selected_edge_index = n
+        action_dict[self.edges[selected_edge_index]] = 1
+        # print("action dict ", action_dict)
         # copy commodity distribution from current time to next
         for n in self.region:
             self.acc[n][self.time + 1] = self.acc[n][self.time]
         # add flows to commodity distribution for next timestamp
         total_travel_time = 0
-        for edge, flow in flows.items():
+        # print("action dict ", action_dict)
+        for edge, flow in action_dict.items():
+            # print("edge ", edge, " flow ", flow)
             (i, j) = edge
             if edge not in self.G.edges:
                 continue
@@ -150,20 +241,23 @@ class NetworkFlow:
         for n in self.region:
             assert self.acc[n][self.time + 1] >= 0
         self.time += 1
+        # print("done with step!")
         # return next state, reward, trajectory complete boolean
         if self.acc[self.goal_node][self.time] == self.total_commodity:
             # return self.get_current_state(), -total_travel_time + 10, True
-            return self.get_current_state(), -total_travel_time + 1, True
-        elif step == max_steps:
+            return self.get_current_state(), -total_travel_time + 1, True, False, {}
+        elif self.time == self.max_steps:
             # return self.get_current_state(), -total_travel_time - 10, True
-            return self.get_current_state(), -total_travel_time - 1, True
+            return self.get_current_state(), -total_travel_time - 1, False, True,  {}
         else:
-            return self.get_current_state(), -total_travel_time, False
+            return self.get_current_state(), -total_travel_time, False, False, {}
             
-    def reset(self, start_to_end_test=False):
+    def reset(self, seed=None):
+        # print("resetting")
         # resets environment for next trajectory, randomly chooses
         # start and goal node and travel times
         # all commodity starts at start node
+        super().reset(seed=seed)
         self.time = 0  # current time
         self.acc = defaultdict(dict) # maps nodes to time to amount of commodity at that node at that time
 
@@ -175,7 +269,8 @@ class NetworkFlow:
             # all other edges have random travel time between 1 and 5
             else:
                 self.G.edges[i]['originalTime'] = random.randint(1,5)
-        if start_to_end_test:
+        if self.start_to_end_test:
+            # print("running start to end test!")
             self.start_node, self.goal_node = 0, self.nregion - 1
         else:
             shortest_path_length = -1
@@ -200,5 +295,5 @@ class NetworkFlow:
         for n in range(len(shortest_path) - 1):
             (a, b) = shortest_path[n], shortest_path[n + 1]
         self.edge_data = torch.FloatTensor([self.G.edges[i,j]['time'] for i,j in self.edges]).unsqueeze(1)
-        return shortest_path
-
+        # return shortest_path
+        return self.get_current_state(), {}
