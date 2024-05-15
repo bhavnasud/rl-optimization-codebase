@@ -1,6 +1,6 @@
 import gymnasium as gym
 import tensorflow as tf
-from typing import List, Tuple, Callable, Dict, Optional, Union, Type
+from typing import List, Tuple, Callable, Dict, Optional, Union, Type, TypeVar
 from torch.distributions import Dirichlet
 import networkx as nx
 import numpy as np
@@ -11,7 +11,8 @@ from torch.nn import Sequential as Seq, Linear, LeakyReLU
 import torch.nn as nn
 
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
-from stable_baselines3.common.type_aliases import PyTorchObs
+from stable_baselines3.common.type_aliases import PyTorchObs, Schedule
+
 from stable_baselines3.common.distributions import (
     BernoulliDistribution,
     CategoricalDistribution,
@@ -21,6 +22,59 @@ from stable_baselines3.common.distributions import (
     StateDependentNoiseDistribution,
 )
 from stable_baselines3.common.policies import MultiInputActorCriticPolicy
+
+SelfDirichletDistribution = TypeVar("SelfDirichletDistribution", bound="DirichletDistribution")
+
+class DirichletDistribution(Distribution):
+    """
+    Dirichlet distribution
+
+    :param action_dim:  Dimension of the action space.
+    """
+
+    def __init__(self, action_dim: int):
+        super().__init__()
+        self.action_dim = action_dim
+
+    def proba_distribution_net(self, latent_dim: int) -> nn.Module:
+       """
+        Create the layer that represents the distribution:
+        You can then get probabilities using a softplus.
+
+        :return:
+        """
+       action_logits = nn.Identity()
+       return action_logits
+    
+    def proba_distribution(self: SelfDirichletDistribution, action_logits: torch.Tensor) -> SelfDirichletDistribution:
+        concentration = F.softplus(action_logits)
+        concentration += torch.rand(concentration.shape) * 1e-20
+        self.concentration = concentration
+        self.distribution = Dirichlet(concentration)
+        return self
+
+    def log_prob(self, actions: torch.Tensor) -> torch.Tensor:
+        return self.distribution.log_prob(actions)
+
+    def entropy(self) -> torch.Tensor:
+        return self.distribution.entropy()
+
+    def sample(self) -> torch.Tensor:
+        # potentially try out rsample for stability
+        return self.distribution.sample()
+
+    def mode(self) -> torch.Tensor:
+        return self.concentration / (self.concentration.sum(dim=1)[:, None])
+
+    def actions_from_params(self, action_logits: torch.Tensor, deterministic: bool = False) -> torch.Tensor:
+        # Update the proba distribution
+        self.proba_distribution(action_logits)
+        return self.get_actions(deterministic=deterministic)
+
+    def log_prob_from_params(self, action_logits: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        actions = self.actions_from_params(action_logits)
+        log_prob = self.log_prob(actions)
+        return actions, log_prob
 
 
 class CustomNetwork(nn.Module):
@@ -36,28 +90,23 @@ class CustomNetwork(nn.Module):
     def __init__(
         self,
         feature_dim: int,
-        last_layer_dim_pi: int = 64,
-        last_layer_dim_vf: int = 64,
     ):
         super(CustomNetwork, self).__init__()
 
-        # Save output dimensions, used to create the distributions
-        self.latent_dim_pi = last_layer_dim_pi
-        self.latent_dim_vf = last_layer_dim_vf
-
         # Policy network
         self.policy_net = nn.Sequential(
-            nn.Linear(feature_dim, 1), nn.ReLU()
+            nn.Linear(feature_dim, 1)
         )
         # Value network
         self.value_net = nn.Sequential(
-            nn.Linear(feature_dim, last_layer_dim_vf), nn.ReLU()
+            nn.Linear(feature_dim, 1)
         )
 
     def forward_actor(self, features: torch.Tensor) -> torch.Tensor:
+        # TODO: move these networks to feature extractor as well, policy_net and value_net can just
+        # be torch identity
         a_probs = self.policy_net(features).squeeze(2)
-        concentration = F.softplus(a_probs)
-        return concentration
+        return a_probs
     
     def forward_critic(self, features: torch.Tensor) -> torch.Tensor:
         features = torch.sum(features, dim=1)
@@ -92,62 +141,36 @@ class CustomMultiInputActorCriticPolicy(MultiInputActorCriticPolicy):
         self.ortho_init = False
 
     def _build_mlp_extractor(self) -> None:
-        # TODO: don't hardcode latent dim policy here
-        self.mlp_extractor = CustomNetwork(self.features_dim, 8, 1)
+        self.mlp_extractor = CustomNetwork(self.features_dim)
     
-    def forward(self, obs: PyTorchObs, deterministic: bool = False) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def _build(self, lr_schedule: Schedule) -> None:
         """
-        Forward pass in all the networks (actor and critic)
+        Create the networks and the optimizer.
 
-        :param obs: Observation
-        :param deterministic: Whether to sample or use deterministic actions
-        :return: action, value and log probability of the action
+        :param lr_schedule: Learning rate schedule
+            lr_schedule(1) is the initial learning rate
         """
-        # Preprocess the observation if needed
-        features = self.extract_features(obs)
-        pi_features, vf_features = features
-        concentrations = self.mlp_extractor.forward_actor(pi_features)
-        latent_vf = self.mlp_extractor.forward_critic(vf_features)
-        dirichlet = Dirichlet(concentrations)
-        # Evaluate the values for the given observations
-        if deterministic:
-            actions = (concentrations) / (concentrations.sum(dim=1))
-        else:   
-            actions = dirichlet.sample()
-        log_prob = dirichlet.log_prob(actions)
-        return actions, latent_vf, log_prob
+        self._build_mlp_extractor()
+        print("action dist ", self.action_dist)
+        action_dim = self.action_space.shape[-1]
+        self.action_dist = DirichletDistribution(action_dim)
+        self.action_net = self.action_dist.proba_distribution_net(0)
+        self.value_net = nn.Identity()
+
+        # Setup optimizer with initial learning rate
+        self.optimizer = self.optimizer_class(self.parameters(), lr=lr_schedule(1), **self.optimizer_kwargs)  # type: ignore[call-arg]
     
-    def evaluate_actions(self, obs: PyTorchObs, actions: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+    def _get_action_dist_from_latent(self, latent_pi: torch.Tensor) -> Distribution:
         """
-        Evaluate actions according to the current policy,
-        given the observations.
+        Retrieve action distribution given the latent codes.
 
-        :param obs: Observation
-        :param actions: Actions
-        :return: estimated value, log likelihood of taking those actions
-            and entropy of the action distribution.
+        :param latent_pi: Latent code for the actor
+        :return: Action distribution
         """
-        # Preprocess the observation if needed
-        features = self.extract_features(obs)
-        pi_features, vf_features = features
-        concentrations = self.mlp_extractor.forward_actor(pi_features)
-        latent_vf = self.mlp_extractor.forward_critic(vf_features)
-        dirichlet = Dirichlet(concentrations)
-        log_prob = dirichlet.log_prob(actions)
-        values = self.value_net(latent_vf)
-        entropy = torch.mean(torch.abs(concentrations), dim=1)
-        return values, log_prob, entropy
-    
-    def _predict(self, observation: PyTorchObs, deterministic: bool = False) -> torch.Tensor:
-        """
-        Get the action according to the policy for a given observation.
+        mean_actions = self.action_net(latent_pi)
+        return self.action_dist.proba_distribution(mean_actions)
 
-        :param observation:
-        :param deterministic: Whether to use stochastic or deterministic actions
-        :return: Taken action according to the policy
-        """
-        actions, latent_vf, log_probs = self.forward(observation, deterministic=deterministic)
-        return actions
+
 
 class EdgeConv(MessagePassing):
     def __init__(self, node_size=4, edge_size=0, out_channels=4):
@@ -175,7 +198,7 @@ class CustomMultiInputExtractor(BaseFeaturesExtractor):
         This corresponds to the number of unit for the last layer.
     """
 
-    def __init__(self, observation_space, features_dim: int = 8):
+    def __init__(self, observation_space, features_dim: int = 10):
         super(CustomMultiInputExtractor, self).__init__(observation_space, features_dim)
 
         # We assume CxHxW images (channels first)

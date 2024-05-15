@@ -20,7 +20,7 @@ import matplotlib.pyplot as plt
 from torch.utils.tensorboard import SummaryWriter
 from stable_baselines3.common.vec_env import DummyVecEnv
 from gymnasium.envs.registration import register
-from src.algos.a2c_stable_baselines import CustomMultiInputExtractor, CustomMultiInputActorCriticPolicy
+from src.algos.a2c_stable_baselines import CustomMultiInputExtractor, CustomMultiInputActorCriticPolicy, DirichletDistribution
 from torch.optim import Adam
 
 
@@ -238,8 +238,8 @@ policy_kwargs = dict(
     share_features_extractor=False,
 )
 
+model = A2C(CustomMultiInputActorCriticPolicy, env, policy_kwargs=policy_kwargs, verbose=1, use_rms_prop=False, learning_rate=1e-4, ent_coef=0.01)
 
-model = A2C(CustomMultiInputActorCriticPolicy, env, policy_kwargs=policy_kwargs, verbose=1, use_rms_prop=False, learning_rate=1e-4)
 # model = A2C("MultiInputPolicy", env, policy_kwargs=policy_kwargs, verbose=1, use_rms_prop=False, learning_rate=1e-4)
 
 eval_callback = EvaluationCallback(env, writer)
