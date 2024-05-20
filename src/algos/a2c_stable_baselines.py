@@ -151,7 +151,6 @@ class CustomMultiInputActorCriticPolicy(MultiInputActorCriticPolicy):
             lr_schedule(1) is the initial learning rate
         """
         self._build_mlp_extractor()
-        print("action dist ", self.action_dist)
         action_dim = self.action_space.shape[-1]
         self.action_dist = DirichletDistribution(action_dim)
         self.action_net = self.action_dist.proba_distribution_net(0)

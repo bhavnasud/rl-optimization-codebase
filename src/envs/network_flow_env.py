@@ -210,6 +210,7 @@ class NetworkFlowEnv(gym.Env):
             if self.acc[n][self.time] == 1:
                 cur_region = n
         # print("cur region is ", cur_region)
+        # TODO: FOR amod, use cplex matching + rebalancing optimization
         action_dict = {}
         for n, edge in enumerate(self.edges):
             (i,j) = edge

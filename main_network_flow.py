@@ -20,13 +20,14 @@ import matplotlib.pyplot as plt
 from torch.utils.tensorboard import SummaryWriter
 from stable_baselines3.common.vec_env import DummyVecEnv
 from gymnasium.envs.registration import register
-from src.algos.a2c_stable_baselines import CustomMultiInputExtractor, CustomMultiInputActorCriticPolicy, DirichletDistribution
+# from src.algos.a2c_stable_baselines import CustomMultiInputExtractor, CustomMultiInputActorCriticPolicy
+from src.algos.sac_stable_baselines import CustomMultiInputExtractor, CustomMultiInputSACPolicy
 from torch.optim import Adam
 
 
 from stable_baselines3.common.vec_env.patch_gym import _patch_env
 from stable_baselines3.common.callbacks import BaseCallback
-from stable_baselines3 import A2C
+from stable_baselines3 import A2C, SAC, PPO
 from stable_baselines3.common.vec_env.base_vec_env import VecEnv, VecEnvIndices, VecEnvObs, VecEnvStepReturn
 from stable_baselines3.common.vec_env import VecEnv
 from stable_baselines3.common.vec_env.util import copy_obs_dict, dict_to_obs, obs_space_info
@@ -238,13 +239,14 @@ policy_kwargs = dict(
     share_features_extractor=False,
 )
 
-model = A2C(CustomMultiInputActorCriticPolicy, env, policy_kwargs=policy_kwargs, verbose=1, use_rms_prop=False, learning_rate=1e-4, ent_coef=0.01)
+# model = A2C(CustomMultiInputActorCriticPolicy, env, policy_kwargs=policy_kwargs, verbose=1, use_rms_prop=False, learning_rate=1e-4, ent_coef=0.01)
 
-# model = A2C("MultiInputPolicy", env, policy_kwargs=policy_kwargs, verbose=1, use_rms_prop=False, learning_rate=1e-4)
+# model = PPO(CustomMultiInputActorCriticPolicy, env, policy_kwargs=policy_kwargs, verbose=1, learning_rate=1e-4, ent_coef=0.01)
 
-eval_callback = EvaluationCallback(env, writer)
+model = SAC(CustomMultiInputSACPolicy, env, policy_kwargs=policy_kwargs, verbose=1, learning_rate=1e-4, ent_coef=0.01)
 
-# model = A2C(CustomPolicy, env, verbose=1)
+eval_callback = EvaluationCallback(env, writer, eval_freq=50)
+
 model.learn(total_timesteps=1000000000, callback=eval_callback)
 
 # epochs = trange(NUM_EPOCHS)
